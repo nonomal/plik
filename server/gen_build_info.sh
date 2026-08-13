@@ -87,6 +87,7 @@ for client in $clientList ; do
 		"386")		prettyArch="32bit" ;;
 		"amd64")	prettyArch="64bit" ;;
 		"arm")		prettyArch="ARM" ;;
+		"arm64")	prettyArch="ARM64" ;;
 	esac
 
 	fullName="$prettyOs $prettyArch"
@@ -100,9 +101,13 @@ declare -a releases
 git config versionsort.prereleaseSuffix -RC
 for gitTag in $(git tag --sort version:refname)
 do
+    # For stable builds, skip RC releases from the list
+    if [[ "$version" != *-RC* ]] && [[ "$gitTag" == *-RC* ]]; then
+        continue
+    fi
 	if [ -f "changelog/$gitTag" ]; then
 		# '%at': author date, UNIX timestamp
-		release_date=$(git show -s --pretty="format:%at" "refs/tags/$gitTag")
+		release_date=$(git show -s --pretty="format:%at" "refs/tags/$gitTag"|tail -n 1)
 		release_json="{\"name\": \"$gitTag\", \"date\": $release_date}"
 		releases+=("$release_json")
 	fi

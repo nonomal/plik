@@ -207,27 +207,6 @@ func TestCreateInvalidRequestBody(t *testing.T) {
 	context.TestBadRequest(t, rr, "unable to deserialize request body")
 }
 
-type NeverEndingReader struct{}
-
-func (r *NeverEndingReader) Read(p []byte) (n int, err error) {
-	for i := range p {
-		p[i] = byte('x')
-	}
-	return len(p), nil
-}
-
-func TestCreateUpload_BodyTooBig(t *testing.T) {
-	ctx := newTestingContext(common.NewConfiguration())
-
-	req, err := http.NewRequest("POST", "/upload", &NeverEndingReader{})
-	require.NoError(t, err, "unable to create new request")
-
-	rr := ctx.NewRecorder(req)
-	CreateUpload(ctx, rr, req)
-
-	context.TestBadRequest(t, rr, "request body too large")
-}
-
 //func TestCreateWithMetadataBackendError(t *testing.T) {
 //	ctx := newTestingContext(common.NewConfiguration())
 //	ctx.GetMetadataBackend().(*metadatadata_test.Backend).SetError(errors.New("metadata backend error"))

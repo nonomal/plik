@@ -1,0 +1,109 @@
+/*
+ * Plik — Catppuccin Mocha Theme
+ * Based on Catppuccin's Mocha flavor (darkest)
+ * https://catppuccin.com/
+ * Palette: https://github.com/catppuccin/palette
+ */
+[data-theme="catppuccin-mocha"] {
+    color-scheme: dark;
+
+    /* ── Surface Scale ── */
+    --color-surface-50: #cdd6f4;
+    /* text     — emphasized headings */
+    --color-surface-100: #bac2de;
+    /* subtext1 — primary text */
+    --color-surface-200: #a6adc8;
+    /* subtext0 — secondary text */
+    --color-surface-300: #9399b2;
+    /* overlay2 — tertiary text */
+    --color-surface-400: #7f849c;
+    /* overlay1 — muted text */
+    --color-surface-500: #6c7086;
+    /* overlay0 — subtle labels */
+    --color-surface-600: #585b70;
+    /* surface2 — hint text */
+    --color-surface-700: #45475a;
+    /* surface1 — dividers */
+    --color-surface-800: #313244;
+    /* surface0 — elevated panels */
+    --color-surface-900: #1e1e2e;
+    /* base     — page background */
+    --color-surface-950: #181825;
+    /* mantle   — deepest background */
+
+    /* ── Accent (Mauve — signature Catppuccin accent) ── */
+    --color-accent-400: #b794f6;
+    /* mauve   — links, active nav, logo */
+    --color-accent-500: #b794f6;
+    /* mauve   — primary buttons */
+    --color-accent-600: #a07de0;
+    /* darker  — pressed accent */
+
+    /* ── Danger / Success (Catppuccin palette) ── */
+    --color-danger-500: #f38ba8;
+    /* red    — destructive actions */
+    --color-danger-600: #e06c88;
+    --color-success-500: #a6e3a1;
+    /* green  — success states */
+    --color-success-600: #8fd48a;
+
+    /* ── Semantic ── */
+    --color-on-accent: #1e1e2e;
+}
+
+/* ── Component Overrides ── */
+[data-theme="catppuccin-mocha"] .glass-card {
+    background-color: rgba(49, 50, 68, 0.92);
+    border-color: #45475a;
+}
+
+[data-theme="catppuccin-mocha"] .sidebar-section {
+    background-color: rgba(49, 50, 68, 0.85);
+    border-color: #45475a;
+}
+
+[data-theme="catppuccin-mocha"] .file-row {
+    border-color: #45475a;
+}
+
+[data-theme="catppuccin-mocha"] .input-field {
+    background-color: #313244;
+    border-color: #45475a;
+}
+
+/* Outlined buttons — mauve border + text, transparent fill */
+[data-theme="catppuccin-mocha"] .btn-primary {
+    background-color: transparent;
+    color: #a580e6;
+    border: 1px solid rgba(165, 128, 230, 0.4);
+    box-shadow: none;
+}
+
+[data-theme="catppuccin-mocha"] .btn-primary:hover {
+    background-color: rgba(165, 128, 230, 0.12);
+    border-color: rgba(165, 128, 230, 0.6);
+}
+
+[data-theme="catppuccin-mocha"] .btn-success {
+    background-color: transparent;
+    color: #a6e3a1;
+    border: 1px solid rgba(166, 227, 161, 0.4);
+    box-shadow: none;
+}
+
+[data-theme="catppuccin-mocha"] .btn-success:hover {
+    background-color: rgba(166, 227, 161, 0.12);
+    border-color: rgba(166, 227, 161, 0.6);
+}
+
+[data-theme="catppuccin-mocha"] .btn-danger {
+    background-color: transparent;
+    color: #f38ba8;
+    border: 1px solid rgba(243, 139, 168, 0.4);
+    box-shadow: none;
+}
+
+[data-theme="catppuccin-mocha"] .btn-danger:hover {
+    background-color: rgba(243, 139, 168, 0.12);
+    border-color: rgba(243, 139, 168, 0.6);
+}

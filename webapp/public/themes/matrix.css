@@ -1,0 +1,115 @@
+/*
+ * Plik — Matrix Theme
+ * Inspired by The Matrix (1999) — neon green on black
+ * "Unfortunately, no one can be told what the Matrix is.
+ *  You have to see it for yourself."
+ */
+[data-theme="matrix"] {
+    color-scheme: dark;
+
+    /* ── Surface Scale ── */
+    --color-surface-50: #00ff41;
+    /* Neon green — emphasized headings */
+    --color-surface-100: #00e639;
+    /* Bright green — primary text */
+    --color-surface-200: #00cc32;
+    /* Medium green — secondary text */
+    --color-surface-300: #00b32b;
+    /* Tertiary text */
+    --color-surface-400: #008f22;
+    /* Muted green */
+    --color-surface-500: #006b1a;
+    /* Subtle labels */
+    --color-surface-600: #004d13;
+    /* Hint text */
+    --color-surface-700: #0a1f0a;
+    /* Dividers */
+    --color-surface-800: #050f05;
+    /* Elevated panels */
+    --color-surface-900: #020802;
+    /* Page background */
+    --color-surface-950: #000000;
+    /* Pure black — deepest background */
+
+    /* ── Accent ── */
+    --color-accent-400: #33d66a;
+    /* Softer neon green — links, active nav, logo */
+    --color-accent-500: #28b858;
+    /* Medium green — primary buttons */
+    --color-accent-600: #1f9a48;
+    /* Darker green — pressed accent */
+
+    /* ── Semantic ── */
+    --color-on-accent: #000000;
+}
+
+/* ── Component Overrides ── */
+[data-theme="matrix"] .glass-card {
+    background-color: rgba(5, 15, 5, 0.95);
+    border-color: #003d0f;
+    box-shadow: 0 0 15px rgba(0, 255, 65, 0.08), 0 10px 25px -5px rgb(0 0 0 / 0.4);
+}
+
+[data-theme="matrix"] .sidebar-section {
+    background-color: rgba(5, 15, 5, 0.90);
+    border-color: #003d0f;
+    box-shadow: 0 0 10px rgba(0, 255, 65, 0.05);
+}
+
+[data-theme="matrix"] .file-row {
+    border-color: #003d0f;
+}
+
+[data-theme="matrix"] .file-row:hover {
+    background-color: rgba(0, 255, 65, 0.05);
+}
+
+[data-theme="matrix"] .input-field {
+    background-color: #050f05;
+    border-color: #003d0f;
+}
+
+[data-theme="matrix"] .toggle-switch[data-active="true"] {
+    background-color: #00ff41;
+    box-shadow: 0 0 8px rgba(0, 255, 65, 0.4);
+}
+
+/* Outlined / inverted buttons — accent border + text, transparent fill */
+[data-theme="matrix"] .btn-primary {
+    background-color: transparent;
+    color: #33d66a;
+    border: 1px solid rgba(51, 214, 106, 0.4);
+    box-shadow: 0 0 6px rgba(0, 255, 65, 0.1);
+}
+
+[data-theme="matrix"] .btn-primary:hover {
+    background-color: rgba(0, 255, 65, 0.08);
+    border-color: rgba(51, 214, 106, 0.6);
+    box-shadow: 0 0 12px rgba(0, 255, 65, 0.25);
+}
+
+[data-theme="matrix"] .btn-success {
+    background-color: transparent;
+    color: #33d66a;
+    border: 1px solid rgba(51, 214, 106, 0.4);
+    box-shadow: none;
+}
+
+[data-theme="matrix"] .btn-success:hover {
+    background-color: rgba(0, 255, 65, 0.08);
+    border-color: rgba(51, 214, 106, 0.6);
+    box-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
+}
+
+[data-theme="matrix"] .btn-danger {
+    background-color: transparent;
+    color: #e05555;
+    border: 1px solid rgba(224, 85, 85, 0.4);
+    box-shadow: none;
+}
+
+[data-theme="matrix"] .btn-danger:hover {
+    background-color: rgba(255, 51, 51, 0.08);
+    border-color: rgba(224, 85, 85, 0.6);
+    box-shadow: 0 0 8px rgba(255, 51, 51, 0.2);
+}

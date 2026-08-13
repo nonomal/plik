@@ -17,14 +17,14 @@ import (
 	"github.com/root-gg/plik/server/common"
 )
 
-func update(client *plik.Client, updateFlag bool) (err error) {
+func (cli *PlikCLI) update(client *plik.Client, updateFlag bool) (err error) {
 	// Do not check for update if AutoUpdate is not enabled
-	if !updateFlag && !config.AutoUpdate {
+	if !updateFlag && !cli.Config.AutoUpdate {
 		return
 	}
 
 	// Do not update when quiet mode is enabled
-	if !updateFlag && config.Quiet {
+	if !updateFlag && cli.Config.Quiet {
 		return
 	}
 
@@ -54,7 +54,7 @@ func update(client *plik.Client, updateFlag bool) (err error) {
 	for _, client := range buildInfo.Clients {
 		if client.OS == runtime.GOOS && client.ARCH == runtime.GOARCH {
 			newMD5 = client.Md5
-			downloadURL = config.URL + "/" + client.Path
+			downloadURL = cli.Config.URL + "/" + client.Path
 			break
 		}
 	}
@@ -68,9 +68,9 @@ func update(client *plik.Client, updateFlag bool) (err error) {
 	if currentMD5 == newMD5 {
 		if updateFlag {
 			if newVersion != "" {
-				printf("Plik client %s is up to date\n", newVersion)
+				cli.printf("Plik client %s is up to date\n", newVersion)
 			} else {
-				printf("Plik client is up to date\n")
+				cli.printf("Plik client is up to date\n")
 			}
 			os.Exit(0)
 		}
@@ -79,14 +79,15 @@ func update(client *plik.Client, updateFlag bool) (err error) {
 
 	// Ask for permission
 	if newVersion != "" {
-		fmt.Printf("Update Plik client from %s to %s ? [Y/n] ", currentVersion, newVersion)
+		cli.printAlways("Update Plik client from %s to %s ? [Y/n] ", currentVersion, newVersion)
 	} else {
-		fmt.Printf("Update Plik client to match server version ? [Y/n] ")
+		cli.printAlways("Update Plik client to match server version ? [Y/n] ")
 	}
-	if ok, err := common.AskConfirmation(true); err != nil || !ok {
-		if err != nil {
-			return fmt.Errorf("Unable to ask for confirmation : %s", err)
-		}
+	ok, err := cli.askConfirmation(true)
+	if err != nil {
+		return fmt.Errorf("Unable to ask for confirmation : %s", err)
+	}
+	if !ok {
 		if updateFlag {
 			os.Exit(0)
 		}
@@ -114,14 +115,18 @@ func update(client *plik.Client, updateFlag bool) (err error) {
 
 		// Find releases between current and new version
 		var releases []*common.Release
-		if currentReleaseIndex > 0 && newReleaseIndex > 0 && currentReleaseIndex < newReleaseIndex {
+		if currentReleaseIndex >= 0 && newReleaseIndex > 0 && currentReleaseIndex < newReleaseIndex {
 			releases = buildInfo.Releases[currentReleaseIndex+1 : newReleaseIndex+1]
+		} else if currentReleaseIndex < 0 && newReleaseIndex >= 0 {
+			// Client version not in the releases list (e.g. RC upgrading to stable)
+			// Show at least the target version's changelog
+			releases = buildInfo.Releases[newReleaseIndex : newReleaseIndex+1]
 		}
 
 		for _, release := range releases {
 			// Get release notes from server
 			var URL *url.URL
-			URL, err = url.Parse(config.URL + "/changelog/" + release.Name)
+			URL, err = url.Parse(cli.Config.URL + "/changelog/" + release.Name)
 			if err != nil {
 				return err
 			}
@@ -131,43 +136,46 @@ func update(client *plik.Client, updateFlag bool) (err error) {
 				return fmt.Errorf("Unable to get release notes for version %s : %s", release.Name, err)
 			}
 
-			resp, err := client.MakeRequest(req)
+			resp, err := client.HTTPClient.Do(req)
 			if err != nil {
 				return fmt.Errorf("Unable to get release notes for version %s : %s", release.Name, err)
 			}
-			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != 200 {
-				return fmt.Errorf("Unable to get release notes for version %s : %s", release.Name, err)
+				_ = resp.Body.Close()
+				return fmt.Errorf("Unable to get release notes for version %s : %s", release.Name, resp.Status)
 			}
 
 			var body []byte
 			body, err = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
 			if err != nil {
 				return fmt.Errorf("Unable to get release notes for version %s : %s", release.Name, err)
 			}
 
 			// Ask to display the release notes
-			fmt.Printf("Do you want to browse the release notes of version %s ? [Y/n] ", release.Name)
-			if ok, err := common.AskConfirmation(true); err != nil || !ok {
-				if err != nil {
-					return fmt.Errorf("Unable to ask for confirmation : %s", err)
-				}
+			cli.printAlways("Do you want to browse the release notes of version %s ? [Y/n] ", release.Name)
+			browseOk, err := cli.askConfirmation(true)
+			if err != nil {
+				return fmt.Errorf("Unable to ask for confirmation : %s", err)
+			}
+			if !browseOk {
 				continue
 			}
 
 			// Display the release notes
 			releaseDate := time.Unix(release.Date, 0).Format("Mon Jan 2 2006 15:04")
-			fmt.Printf("Plik %s has been released %s\n\n", release.Name, releaseDate)
-			fmt.Println(string(body))
+			cli.printAlways("Plik %s has been released %s\n\n", release.Name, releaseDate)
+			cli.printAlways("%s\n", string(body))
 
 			// Let user review the last release notes and ask to confirm update
 			if release.Name == newVersion {
-				fmt.Printf("\nUpdate Plik client from %s to %s ? [Y/n] ", currentVersion, newVersion)
-				if ok, err := common.AskConfirmation(true); err != nil || !ok {
-					if err != nil {
-						return fmt.Errorf("Unable to ask for confirmation : %s", err)
-					}
+				cli.printAlways("\nUpdate Plik client from %s to %s ? [Y/n] ", currentVersion, newVersion)
+				confirmOk, err := cli.askConfirmation(true)
+				if err != nil {
+					return fmt.Errorf("Unable to ask for confirmation : %s", err)
+				}
+				if !confirmOk {
 					if updateFlag {
 						os.Exit(0)
 					}
@@ -198,7 +206,7 @@ func update(client *plik.Client, updateFlag bool) (err error) {
 	if err != nil {
 		return fmt.Errorf("Unable to download client : %s", err)
 	}
-	resp, err := client.MakeRequest(req)
+	resp, err := client.HTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("Unable to download client : %s", err)
 	}
@@ -231,9 +239,9 @@ func update(client *plik.Client, updateFlag bool) (err error) {
 	}
 
 	if newVersion != "" {
-		fmt.Printf("Plik client successfully updated to %s\n", newVersion)
+		cli.printAlways("Plik client successfully updated to %s\n", newVersion)
 	} else {
-		fmt.Printf("Plik client successfully updated\n")
+		cli.printAlways("Plik client successfully updated\n")
 	}
 
 	return

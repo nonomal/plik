@@ -4,7 +4,6 @@ release
 releases
 server/plikd
 webapp/node_modules
-webapp/bower_components
 webapp/dist
 **/plik.db*
 **/plik.crt

@@ -22,10 +22,12 @@ func New(opts ...Option) *Paginator {
 
 // Paginator a builder doing pagination
 type Paginator struct {
-	cursor Cursor
-	rules  []Rule
-	limit  int
-	order  Order
+	cursor        Cursor
+	rules         []Rule
+	limit         int
+	order         Order
+	allowTupleCmp bool
+	cursorCodec   CursorCodec
 }
 
 // SetRules sets paging rules
@@ -63,6 +65,16 @@ func (p *Paginator) SetAfterCursor(afterCursor string) {
 // SetBeforeCursor sets paging before cursor
 func (p *Paginator) SetBeforeCursor(beforeCursor string) {
 	p.cursor.Before = &beforeCursor
+}
+
+// SetAllowTupleCmp enables or disables tuple comparison optimization
+func (p *Paginator) SetAllowTupleCmp(allow bool) {
+	p.allowTupleCmp = allow
+}
+
+// SetCursorCodec sets custom cursor codec
+func (p *Paginator) SetCursorCodec(codec CursorCodec) {
+	p.cursorCodec = codec
 }
 
 // Paginate paginates data
@@ -174,17 +186,22 @@ func isNil(i interface{}) bool {
 
 func (p *Paginator) decodeCursor(dest interface{}) (result []interface{}, err error) {
 	if p.isForward() {
-		if result, err = cursor.NewDecoder(p.getDecoderFields()).Decode(*p.cursor.After, dest); err != nil {
+		if result, err = p.cursorCodec.Decode(p.getDecoderFields(), *p.cursor.After, dest); err != nil {
 			err = ErrInvalidCursor
 		}
 	} else if p.isBackward() {
-		if result, err = cursor.NewDecoder(p.getDecoderFields()).Decode(*p.cursor.Before, dest); err != nil {
+		if result, err = p.cursorCodec.Decode(p.getDecoderFields(), *p.cursor.Before, dest); err != nil {
 			err = ErrInvalidCursor
 		}
 	}
 	// replace null values
 	for i := range result {
-		if isNil(result[i]) {
+		value := result[i]
+		// for custom types, evaluate isNil on the underlying value
+		if ct, ok := result[i].(cursor.CustomType); ok && p.rules[i].CustomType != nil {
+			value, err = ct.GetCustomTypeValue(p.rules[i].CustomType.Meta)
+		}
+		if isNil(value) {
 			result[i] = p.rules[i].NULLReplacement
 		}
 	}
@@ -204,13 +221,19 @@ func (p *Paginator) appendPagingQuery(db *gorm.DB, fields []interface{}) *gorm.D
 	stmt := db
 	stmt = stmt.Limit(p.limit + 1)
 	stmt = stmt.Order(p.buildOrderSQL())
-	if len(fields) > 0 {
-		stmt = stmt.Where(
-			p.buildCursorSQLQuery(),
-			p.buildCursorSQLQueryArgs(fields)...,
-		)
+
+	if len(fields) == 0 {
+		return stmt
 	}
-	return stmt
+
+	if p.allowTupleCmp && p.canOptimizePagingQuery() {
+		return stmt.Where(p.buildOptimizedCursorSQLQuery(), fields)
+	}
+
+	return stmt.Where(
+		p.buildCursorSQLQuery(),
+		p.buildCursorSQLQueryArgs(fields)...,
+	)
 }
 
 func (p *Paginator) buildOrderSQL() string {
@@ -229,17 +252,50 @@ func (p *Paginator) buildCursorSQLQuery() string {
 	queries := make([]string, len(p.rules))
 	query := ""
 	for i, rule := range p.rules {
-		operator := "<"
-		if (p.isForward() && rule.Order == ASC) ||
-			(p.isBackward() && rule.Order == DESC) {
-			operator = ">"
-		}
+		operator := p.getCmpOperator(rule.Order)
 		queries[i] = fmt.Sprintf("%s%s %s ?", query, rule.SQLRepr, operator)
 		query = fmt.Sprintf("%s%s = ? AND ", query, rule.SQLRepr)
 	}
 	// for exmaple:
 	// a > 1 OR a = 1 AND b > 2 OR a = 1 AND b = 2 AND c > 3
 	return strings.Join(queries, " OR ")
+}
+
+// We can only optimize paging query if sorting orders are consistent across
+// all columns used in cursor. This is a prerequisite for tuple comparison that
+// optimized queries use.
+func (p *Paginator) canOptimizePagingQuery() bool {
+	order := p.rules[0].Order
+
+	for _, rule := range p.rules {
+		if order != rule.Order {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (p *Paginator) getCmpOperator(order Order) string {
+	if (p.isForward() && order == ASC) || (p.isBackward() && order == DESC) {
+		return ">"
+	}
+
+	return "<"
+}
+
+func (p *Paginator) buildOptimizedCursorSQLQuery() string {
+	names := make([]string, len(p.rules))
+
+	for i, rule := range p.rules {
+		names[i] = rule.SQLRepr
+	}
+
+	return fmt.Sprintf(
+		"(%s) %s ?",
+		strings.Join(names, ", "),
+		p.getCmpOperator(p.rules[0].Order),
+	)
 }
 
 func (p *Paginator) buildCursorSQLQueryArgs(fields []interface{}) (args []interface{}) {
@@ -250,10 +306,9 @@ func (p *Paginator) buildCursorSQLQueryArgs(fields []interface{}) (args []interf
 }
 
 func (p *Paginator) encodeCursor(elems reflect.Value, hasMore bool) (result Cursor, err error) {
-	encoder := cursor.NewEncoder(p.getEncoderFields())
 	// encode after cursor
 	if p.isBackward() || hasMore {
-		c, err := encoder.Encode(elems.Index(elems.Len() - 1))
+		c, err := p.cursorCodec.Encode(p.getEncoderFields(), elems.Index(elems.Len()-1))
 		if err != nil {
 			return Cursor{}, err
 		}
@@ -261,7 +316,7 @@ func (p *Paginator) encodeCursor(elems reflect.Value, hasMore bool) (result Curs
 	}
 	// encode before cursor
 	if p.isForward() || (hasMore && p.isBackward()) {
-		c, err := encoder.Encode(elems.Index(0))
+		c, err := p.cursorCodec.Encode(p.getEncoderFields(), elems.Index(0))
 		if err != nil {
 			return Cursor{}, err
 		}
@@ -271,6 +326,7 @@ func (p *Paginator) encodeCursor(elems reflect.Value, hasMore bool) (result Curs
 }
 
 /* custom types */
+
 func (p *Paginator) getEncoderFields() []cursor.EncoderField {
 	fields := make([]cursor.EncoderField, len(p.rules))
 	for i, rule := range p.rules {

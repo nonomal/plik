@@ -1,31 +1,78 @@
-Debug = false                   # be more verbose
-Quiet = false                   # be less verbose
+# --- Server ---
 URL = "https://plik.root.gg"    # URL of the plik server
-OneShot = false                 # Set the uploads to be one shot by default  (if available server side)
-Removable = false               # Set the uploads to be removable by default (if available server side)
-Stream = false                  # Set the uploads to be stream by default    (if available server side)
-Secure = false                  # Set the uploads to be encrypted by defaul
-SecureMethod = "openssl"        # Set the default encryption method
-Archive = false                 # Set the uploads to be archives by default
-ArchiveMethod = "tar"           # Set the default archive method
-DownloadBinary = "curl"         # Set the default download command (curl / wget)
-Comments = ""                   # Set the default upload comments
-Login = ""                      # Set the default upload login (http basic auth)
-Password = ""                   # Set the default upload password (http basic auth)
-TTL = 0                         # Set the default upload TTL (0 for server default)
-ExtendTTL = false               # Set the uploads to extend TTL by default   (if available server side)
-AutoUpdate = true               # Enable/Disable auto update mechanism
-Token = ""                      # Set the Authentication Token (can be created from the UI)
-DisableStdin = false            # Disable STDIN input
-Insecure = false                # Disable HTTPS certificate validation
+Token = ""                      # Authentication token (created via web UI or --login)
+Insecure = false                # Skip TLS certificate validation
 
-[SecureOptions]
-  Cipher = "aes-256-cbc"
-  Openssl = "/usr/bin/openssl"
-  Options = "-md sha512 -pbkdf2 -iter 120000"
+# --- Upload defaults ---
+OneShot = false                 # Delete file after first download (if available server side)
+Removable = false               # Allow anyone to delete the file (if available server side)
+Stream = false                  # Stream upload, blocks until download starts (if available server side)
+TTL = 0                         # Upload time-to-live in seconds (0 = server default)
+ExtendTTL = false               # Extend expiration on access (if available server side)
+Comments = ""                   # Default upload comments (Markdown)
+
+# --- Authentication ---
+Login = ""                      # HTTP basic auth login
+Password = ""                   # HTTP basic auth password
+
+# --- Archive ---
+Archive = false                 # Archive files before upload
+ArchiveMethod = "tar"           # Archive backend (tar | zip)
+
+# --- Encryption ---
+Secure = false                  # Encrypt files before upload
+SecureMethod = "age"            # Crypto backend (age | openssl | pgp)
+
+# --- Output ---
+Debug = false                   # Verbose debug output
+Quiet = false                   # Suppress non-essential output
+JSON = false                    # Output upload metadata as JSON (implies Quiet)
+DownloadBinary = "curl"         # Download command for output (curl | wget)
+
+# --- Behavior ---
+AutoUpdate = true               # Auto-update client binary from server
+DisableStdin = false            # Disable STDIN pipe input by default
+Yes = false                     # Auto-accept confirmation prompts (non-interactive)
+DefaultProfile = ""             # Default profile to use (can also be set via PLIK_PROFILE env var)
 
 [ArchiveOptions]
   Compress = "gzip"
   Options = ""
   Tar = "/bin/tar"
 
+# [SecureOptions]
+#   Passphrase = ""             # [age|openssl] Encryption passphrase (auto-generated if omitted)
+#   Recipient = ""              # [age] @github_user, ssh://host, URL, ssh key, or age1...
+#                               # [pgp] Name or email to search in keyring
+#   Cipher = ""                 # [openssl] Cipher (default: aes-256-cbc)
+#   Options = "-md sha512 -pbkdf2 -iter 120000"  # [openssl] Additional command line options
+#   Openssl = ""                # [openssl] Path to openssl binary (default: /usr/bin/openssl)
+#   Keyring = ""                # [pgp] Path to GnuPG keyring (default: $GNUPGHOME/pubring.gpg or ~/.gnupg/pubring.gpg)
+
+# --- Profiles ---
+# Named profiles let you maintain different configurations
+# for multiple servers or use-cases. Use with: plik -P <name> file.txt
+# Profiles inherit all top-level settings and can override any field.
+# If a profile sets URL, it *must* also set Token (use Token = "" for anonymous).
+#
+# [Profiles.local]
+# URL = "http://127.0.0.1:8080"
+# Token = ""
+# AutoUpdate = false
+#
+# [Profiles.work]
+# URL = "https://plik.work.corp"
+# Token = "your-token-here"
+# AutoUpdate = false
+#
+# # Create a .zip archive instead of the default .tar.gz
+# [Profiles.zip]
+# Archive = true
+# ArchiveMethod = "zip"
+#
+# # Encrypt files for a specific GitHub user using age
+# [Profiles.bob]
+# Secure = true
+# SecureMethod = "age"
+# [Profiles.bob.SecureOptions]
+# Recipient = "@bob"   # github username

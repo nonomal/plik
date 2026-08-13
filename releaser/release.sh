@@ -17,15 +17,21 @@ if ! make build-info | grep "mint=true" >/dev/null ; then
   git status
 fi
 
-if make build-info | grep "release=true" >/dev/null ; then
-  RELEASE=true
-else
-  echo "!!! Release is not tagged !!!"
+if [[ -z "$RELEASE" ]]; then
+  if make build-info | grep "release=true" >/dev/null ; then
+    RELEASE=true
+  else
+    echo "!!! Release is not tagged !!!"
+  fi
 fi
 
 DOCKER_IMAGE=${DOCKER_IMAGE:-rootgg/plik}
 DOCKER_TAG=${TAG:-dev}
 TARGETS=${TARGETS:-linux/amd64,linux/i386,linux/arm64,linux/arm}
+
+if [[ -n "$VERSION" ]]; then
+  BUILD_ARGS="$BUILD_ARGS --build-arg VERSION=$VERSION"
+fi
 
 if [[ -n "$CLIENT_TARGETS" ]]; then
   BUILD_ARGS="$BUILD_ARGS --build-arg CLIENT_TARGETS=$CLIENT_TARGETS"
@@ -39,7 +45,12 @@ fi
 if [[ -n "$PUSH_TO_DOCKER_HUB" ]]; then
   EXTRA_ARGS="-t $DOCKER_IMAGE:$DOCKER_TAG"
   if [[ "$RELEASE" == "true" ]]; then
-    EXTRA_ARGS="$EXTRA_ARGS -t $DOCKER_IMAGE:$VERSION -t $DOCKER_IMAGE:latest"
+    EXTRA_ARGS="$EXTRA_ARGS -t $DOCKER_IMAGE:$VERSION"
+    EXTRA_ARGS="$EXTRA_ARGS -t $DOCKER_IMAGE:preview"
+    # Only tag as latest for stable releases (no suffix like -RC1, -alpha, -test, etc.)
+    if [[ ! "$VERSION" =~ - ]]; then
+      EXTRA_ARGS="$EXTRA_ARGS -t $DOCKER_IMAGE:latest"
+    fi
   fi
   EXTRA_ARGS="$EXTRA_ARGS --push"
 fi
@@ -47,6 +58,30 @@ fi
 # Clean release directory
 mkdir -p releases
 rm -rf releases/*
+
+# Export client binaries
+echo ""
+echo " Exporting client binaries"
+echo ""
+docker buildx build --progress=plain --platform linux/amd64 $BUILD_ARGS --target plik-clients-archive -o releases/clients .
+
+# Rename client binaries for release ( e.g. plik-1.4-RC1-linux-amd64 )
+for dir in releases/clients/*/; do
+  target=$(basename "$dir")
+
+  # Copy the bash client as-is
+  if [[ "$target" == "bash" ]]; then
+    cp "$dir/plik.sh" "releases/plik-${VERSION}.sh"
+    continue
+  fi
+
+  if [[ -f "$dir/plik.exe" ]]; then
+    mv "$dir/plik.exe" "releases/plik-${VERSION}-${target}.exe"
+  elif [[ -f "$dir/plik" ]]; then
+    mv "$dir/plik" "releases/plik-${VERSION}-${target}"
+  fi
+done
+rm -rf releases/clients
 
 # Build release archives
 docker buildx build --progress=plain --platform $TARGETS $BUILD_ARGS --target plik-release-archive -o releases .

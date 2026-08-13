@@ -13,7 +13,7 @@ type BackendConfig struct {
 
 // NewTarBackendConfig instantiate a new Backend Configuration
 // from config map passed as argument
-func NewTarBackendConfig(config map[string]interface{}) (tb *BackendConfig) {
+func NewTarBackendConfig(config map[string]any) (tb *BackendConfig) {
 	tb = new(BackendConfig)
 	tb.Tar = "/bin/tar"
 	tb.Compress = "gzip"

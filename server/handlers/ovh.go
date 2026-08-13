@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/root-gg/plik/server/common"
 	"github.com/root-gg/plik/server/context"
@@ -33,15 +33,22 @@ type ovhUserResponse struct {
 	LastName  string `json:"name"`
 }
 
+// maxOVHResponseSize is the maximum size of an OVH API response body (1MB).
+const maxOVHResponseSize = 1 << 20
+
+const ovhHTTPTimeout = 10 * time.Second
+
+var ovhHTTPClient = &http.Client{Timeout: ovhHTTPTimeout}
+
 func decodeOVHResponse(resp *http.Response) ([]byte, error) {
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxOVHResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("unable to read response body : %s", err)
 	}
 
 	if resp.StatusCode > 399 {
 		// Decode OVH error information from response
-		if body != nil && len(body) > 0 {
+		if len(body) > 0 {
 			var ovhErr ovhError
 			err := json.Unmarshal(body, &ovhErr)
 			if err == nil {
@@ -55,21 +62,38 @@ func decodeOVHResponse(resp *http.Response) ([]byte, error) {
 	return body, nil
 }
 
-// OvhLogin return OVH api user consent URL.
-func OvhLogin(ctx *context.Context, resp http.ResponseWriter, req *http.Request) {
+// checkOvhAuth validates that OVH authentication is properly configured.
+// Returns false if an error response has been written and the caller should return.
+func checkOvhAuth(ctx *context.Context) bool {
 	config := ctx.GetConfig()
 
 	if config.FeatureAuthentication == common.FeatureDisabled {
 		ctx.BadRequest("authentication is disabled")
-		return
+		return false
 	}
 
 	if !config.OvhAuthentication {
 		ctx.BadRequest("OVH authentication is disabled")
+		return false
+	}
+
+	if config.OvhAPIKey == "" || config.OvhAPISecret == "" || config.OvhAPIEndpoint == "" {
+		ctx.InternalServerError("missing OVH API credentials", nil)
+		return false
+	}
+
+	return true
+}
+
+// OvhLogin return OVH api user consent URL.
+func OvhLogin(ctx *context.Context, resp http.ResponseWriter, req *http.Request) {
+	if !checkOvhAuth(ctx) {
 		return
 	}
 
-	// Get redirection URL from the referrer header
+	config := ctx.GetConfig()
+
+	// Get redirection URL from the PlikDomain or referrer header
 	redirectURL, err := getRedirectURL(ctx, "/auth/ovh/callback")
 	if err != nil {
 		handleHTTPError(ctx, err)
@@ -77,19 +101,36 @@ func OvhLogin(ctx *context.Context, resp http.ResponseWriter, req *http.Request)
 	}
 
 	// Prepare auth request
-	ovhReqBody := "{\"accessRules\":[{\"method\":\"GET\",\"path\":\"/me\"}], \"redirection\":\"" + redirectURL + "\"}"
+	ovhReqPayload := struct {
+		AccessRules []struct {
+			Method string `json:"method"`
+			Path   string `json:"path"`
+		} `json:"accessRules"`
+		Redirection string `json:"redirection"`
+	}{
+		AccessRules: []struct {
+			Method string `json:"method"`
+			Path   string `json:"path"`
+		}{{Method: "GET", Path: "/me"}},
+		Redirection: redirectURL,
+	}
+	ovhReqBodyBytes, err := json.Marshal(ovhReqPayload)
+	if err != nil {
+		ctx.InternalServerError("unable to marshal OVH request body", err)
+		return
+	}
 	u := fmt.Sprintf("%s/auth/credential", config.OvhAPIEndpoint)
 
-	ovhReq, err := http.NewRequest("POST", u, strings.NewReader(ovhReqBody))
+	ovhReq, err := http.NewRequest("POST", u, strings.NewReader(string(ovhReqBodyBytes)))
 	if err != nil {
 		ctx.InvalidParameter("unable to create POST request to %s : %s", u, err)
+		return
 	}
 	ovhReq.Header.Add("X-Ovh-Application", config.OvhAPIKey)
 	ovhReq.Header.Add("Content-type", "application/json")
 
 	// Do request
-	client := &http.Client{}
-	ovhResp, err := client.Do(ovhReq)
+	ovhResp, err := ovhHTTPClient.Do(ovhReq)
 	if err != nil {
 		ctx.InternalServerError(fmt.Sprintf("error with OVH API %s", u), err)
 		return
@@ -109,9 +150,12 @@ func OvhLogin(ctx *context.Context, resp http.ResponseWriter, req *http.Request)
 	}
 
 	// Generate session jwt
-	session := jwt.New(jwt.SigningMethodHS256)
-	session.Claims.(jwt.MapClaims)["ovh-consumer-key"] = userConsentResponse.ConsumerKey
-	session.Claims.(jwt.MapClaims)["ovh-api-endpoint"] = config.OvhAPIEndpoint
+	claims := jwt.MapClaims{
+		"ovh-consumer-key": userConsentResponse.ConsumerKey,
+		"ovh-api-endpoint": config.OvhAPIEndpoint,
+		"expire":           time.Now().Add(5 * time.Minute).Unix(),
+	}
+	session := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	sessionString, err := session.SignedString([]byte(config.OvhAPISecret))
 	if err != nil {
@@ -123,9 +167,10 @@ func OvhLogin(ctx *context.Context, resp http.ResponseWriter, req *http.Request)
 	ovhAuthCookie := &http.Cookie{}
 	ovhAuthCookie.HttpOnly = true
 	ovhAuthCookie.Secure = true
+	ovhAuthCookie.SameSite = http.SameSiteLaxMode
 	ovhAuthCookie.Name = "plik-ovh-session"
 	ovhAuthCookie.Value = sessionString
-	ovhAuthCookie.MaxAge = int(time.Now().Add(5 * time.Minute).Unix())
+	ovhAuthCookie.MaxAge = 300 // 5 minutes
 	ovhAuthCookie.Path = "/"
 	http.SetCookie(resp, ovhAuthCookie)
 
@@ -137,6 +182,7 @@ func cleanOvhAuthSessionCookie(resp http.ResponseWriter) {
 	ovhAuthCookie := &http.Cookie{}
 	ovhAuthCookie.HttpOnly = true
 	ovhAuthCookie.Secure = true
+	ovhAuthCookie.SameSite = http.SameSiteLaxMode
 	ovhAuthCookie.Name = "plik-ovh-session"
 	ovhAuthCookie.Value = ""
 	ovhAuthCookie.MaxAge = -1
@@ -146,20 +192,14 @@ func cleanOvhAuthSessionCookie(resp http.ResponseWriter) {
 
 // OvhCallback authenticate OVH user.
 func OvhCallback(ctx *context.Context, resp http.ResponseWriter, req *http.Request) {
-	config := ctx.GetConfig()
-
 	// Remove temporary OVH auth session cookie
 	cleanOvhAuthSessionCookie(resp)
 
-	if config.FeatureAuthentication == common.FeatureDisabled {
-		ctx.BadRequest("authentication is disabled")
+	if !checkOvhAuth(ctx) {
 		return
 	}
 
-	if config.OvhAPIKey == "" || config.OvhAPISecret == "" || config.OvhAPIEndpoint == "" {
-		ctx.InternalServerError("missing OVH API credentials", nil)
-		return
-	}
+	config := ctx.GetConfig()
 
 	// Get state from secure cookie
 	ovhSessionCookie, err := req.Cookie("plik-ovh-session")
@@ -169,10 +209,23 @@ func OvhCallback(ctx *context.Context, resp http.ResponseWriter, req *http.Reque
 	}
 
 	// Parse session cookie
-	ovhAuthCookie, err := jwt.Parse(ovhSessionCookie.Value, func(t *jwt.Token) (interface{}, error) {
+	ovhAuthCookie, err := jwt.Parse(ovhSessionCookie.Value, func(t *jwt.Token) (any, error) {
 		// Verify signing algorithm
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected siging method : %v", t.Header["alg"])
+			return nil, fmt.Errorf("unexpected signing method : %v", t.Header["alg"])
+		}
+
+		// Verify expiration date
+		if expire, ok := t.Claims.(jwt.MapClaims)["expire"]; ok {
+			if _, ok = expire.(float64); ok {
+				if time.Now().Unix() > (int64)(expire.(float64)) {
+					return nil, fmt.Errorf("state has expired")
+				}
+			} else {
+				return nil, fmt.Errorf("invalid expiration date")
+			}
+		} else {
+			return nil, fmt.Errorf("missing expiration date")
 		}
 
 		return []byte(config.OvhAPISecret), nil
@@ -212,19 +265,18 @@ func OvhCallback(ctx *context.Context, resp http.ResponseWriter, req *http.Reque
 
 	// Sign request
 	h := sha1.New()
-	h.Write([]byte(fmt.Sprintf("%s+%s+%s+%s+%s+%d",
+	h.Write(fmt.Appendf(nil, "%s+%s+%s+%s+%s+%d",
 		config.OvhAPISecret,
 		ovhConsumerKey.(string),
 		"GET",
 		url,
 		"",
 		timestamp,
-	)))
+	))
 	ovhReq.Header.Add("X-Ovh-Signature", fmt.Sprintf("$1$%x", h.Sum(nil)))
 
 	// Do request
-	client := &http.Client{}
-	ovhResp, err := client.Do(ovhReq)
+	ovhResp, err := ovhHTTPClient.Do(ovhReq)
 	if err != nil {
 		ctx.InternalServerError(fmt.Sprintf("error with OVH API %s", url), err)
 		return
@@ -269,15 +321,35 @@ func OvhCallback(ctx *context.Context, resp http.ResponseWriter, req *http.Reque
 			ctx.Forbidden("unable to create user from untrusted source IP address")
 			return
 		}
+	} else {
+		// Update existing user fields if changed
+		updated := false
+		name := userInfo.FirstName + " " + userInfo.LastName
+		if name != " " && user.Name != name {
+			user.Name = name
+			updated = true
+		}
+		if userInfo.Email != "" && user.Email != userInfo.Email {
+			user.Email = userInfo.Email
+			updated = true
+		}
+		if updated {
+			err = ctx.GetMetadataBackend().UpdateUser(user)
+			if err != nil {
+				ctx.InternalServerError("unable to update user : %s", err)
+				return
+			}
+		}
 	}
 
 	// Set Plik session cookie and xsrf cookie
 	sessionCookie, xsrfCookie, err := ctx.GetAuthenticator().GenAuthCookies(user)
 	if err != nil {
 		ctx.InternalServerError("unable to generate session cookies", err)
+		return
 	}
 	http.SetCookie(resp, sessionCookie)
 	http.SetCookie(resp, xsrfCookie)
 
-	http.Redirect(resp, req, config.Path+"/#/login", http.StatusMovedPermanently)
+	http.Redirect(resp, req, config.Path+"/#/login", http.StatusFound)
 }

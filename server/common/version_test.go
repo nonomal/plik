@@ -1,7 +1,6 @@
 package common
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -50,5 +49,5 @@ func TestGetBuildInfoStringSanitize(t *testing.T) {
 	buildInfo := GetBuildInfo()
 	buildInfo.Sanitize()
 	v := buildInfo.String()
-	require.Equal(t, fmt.Sprintf("v%s", buildInfo.Version), v, "invalid build string")
+	require.Equal(t, buildInfo.Version, v, "invalid build string")
 }

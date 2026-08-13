@@ -36,7 +36,7 @@ func newImporter(path string) (i *importer, err error) {
 	// Snappy decompressor
 	i.decompressor = snappy.NewReader(i.reader)
 
-	// Gog decoder
+	// Gob decoder
 	gob.Register(&common.Upload{})
 	gob.Register(&common.File{})
 	gob.Register(&common.User{})

@@ -117,7 +117,7 @@ func TestUploadExtendTTL(t *testing.T) {
 		"uploadID": upload.ID,
 	}
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		req = mux.SetURLVars(req, vars)
 		rr := ctx.NewRecorder(req)
 		Upload(ctx, common.DummyHandler).ServeHTTP(rr, req)
@@ -403,19 +403,16 @@ func TestUploadPassword(t *testing.T) {
 	ctx := newTestingContext(common.NewConfiguration())
 	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
 
-	var err error
-
 	upload := &common.Upload{}
 	upload.ProtectedByPassword = true
 	upload.Login = "login"
-	upload.Password = "password"
 	upload.InitializeForTests()
 
-	// The Authorization header will contain the base64 version of "login:password"
-	// Save only the md5sum of this string to authenticate further requests
-	b64str := base64.StdEncoding.EncodeToString([]byte(upload.Login + ":" + upload.Password))
-	upload.Password, err = utils.Md5sum(b64str)
-	require.NoError(t, err, "unable to b64encode upload credentials")
+	// Hash credentials with bcrypt(sha256) (new upload path)
+	b64str := base64.StdEncoding.EncodeToString([]byte("login:password"))
+	var err error
+	upload.Password, err = common.HashUploadPassword("login", "password")
+	require.NoError(t, err, "unable to hash upload credentials")
 
 	err = ctx.GetMetadataBackend().CreateUpload(upload)
 	require.NoError(t, err, "Unable to create upload")
@@ -438,4 +435,40 @@ func TestUploadPassword(t *testing.T) {
 	require.NotNil(t, ctx.GetUpload(), "missing upload from context")
 	require.Equal(t, upload.ID, ctx.GetUpload().ID, "invalid upload from context")
 	require.False(t, upload.IsAdmin, "invalid upload admin status")
+}
+
+func TestUploadPasswordLegacyMD5(t *testing.T) {
+	ctx := newTestingContext(common.NewConfiguration())
+	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
+
+	upload := &common.Upload{}
+	upload.ProtectedByPassword = true
+	upload.Login = "login"
+	upload.InitializeForTests()
+
+	// Simulate legacy MD5 hash (old uploads)
+	b64str := base64.StdEncoding.EncodeToString([]byte("login:password"))
+	var err error
+	upload.Password, err = utils.Md5sum(b64str)
+	require.NoError(t, err, "unable to md5sum upload credentials")
+
+	err = ctx.GetMetadataBackend().CreateUpload(upload)
+	require.NoError(t, err, "Unable to create upload")
+
+	req, err := http.NewRequest("GET", "", &bytes.Buffer{})
+	require.NoError(t, err, "unable to create new request")
+
+	vars := map[string]string{
+		"uploadID": upload.ID,
+	}
+	req = mux.SetURLVars(req, vars)
+
+	req.Header.Add("Authorization", "Basic "+b64str)
+
+	rr := ctx.NewRecorder(req)
+	Upload(ctx, common.DummyHandler).ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code, "invalid handler response status code")
+	require.NotNil(t, ctx.GetUpload(), "missing upload from context")
+	require.Equal(t, upload.ID, ctx.GetUpload().ID, "invalid upload from context")
 }

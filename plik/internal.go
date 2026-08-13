@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/root-gg/utils"
@@ -29,20 +30,20 @@ func (c *Client) create(uploadParams *common.Upload) (uploadMetadata *common.Upl
 		return nil, err
 	}
 
-	req, err := c.UploadRequest(uploadParams, "POST", c.URL+"/upload", bytes.NewBuffer(j))
+	req, err := c.uploadRequest(uploadParams, "POST", c.URL+"/upload", bytes.NewBuffer(j))
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.MakeRequest(req)
+	resp, err := c.makeRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +106,7 @@ func (c *Client) uploadFile(upload *common.Upload, fileParams *common.File, read
 
 	var URL *url.URL
 	if fileParams.ID != "" {
-		URL, err = url.Parse(c.URL + "/" + mode + "/" + upload.ID + "/" + fileParams.ID + "/" + fileParams.Name)
+		URL, err = url.Parse(c.URL + "/" + mode + "/" + upload.ID + "/" + fileParams.ID + "/" + url.PathEscape(fileParams.Name))
 	} else {
 		// Old method without file id that can also be used to add files to an existing upload
 		if upload.Stream {
@@ -118,14 +119,14 @@ func (c *Client) uploadFile(upload *common.Upload, fileParams *common.File, read
 		return nil, err
 	}
 
-	req, err := c.UploadRequest(upload, "POST", URL.String(), pipeReader)
+	req, err := c.uploadRequest(upload, "POST", URL.String(), pipeReader)
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
 
-	resp, err := c.MakeRequest(req)
+	resp, err := c.makeRequest(req)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +137,7 @@ func (c *Client) uploadFile(upload *common.Upload, fileParams *common.File, read
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err
 	}
@@ -155,8 +156,8 @@ func (c *Client) uploadFile(upload *common.Upload, fileParams *common.File, read
 	return fileInfo, nil
 }
 
-// UploadRequest creates a new HTTP request with the header generated from the given upload params
-func (c *Client) UploadRequest(upload *common.Upload, method, URL string, body io.Reader) (req *http.Request, err error) {
+// uploadRequest creates a new HTTP request with the header generated from the given upload params
+func (c *Client) uploadRequest(upload *common.Upload, method, URL string, body io.Reader) (req *http.Request, err error) {
 	req, err = http.NewRequest(method, URL, body)
 	if err != nil {
 		return nil, err
@@ -183,18 +184,18 @@ func (c *Client) UploadRequest(upload *common.Upload, method, URL string, body i
 func (c *Client) getUploadWithParams(uploadParams *common.Upload) (upload *Upload, err error) {
 	URL := c.URL + "/upload/" + uploadParams.ID
 
-	req, err := c.UploadRequest(uploadParams, "GET", URL, nil)
+	req, err := c.uploadRequest(uploadParams, "GET", URL, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := c.MakeRequest(req)
+	resp, err := c.makeRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err
 	}
@@ -213,14 +214,14 @@ func (c *Client) getUploadWithParams(uploadParams *common.Upload) (upload *Uploa
 
 // downloadFile download the remote file from the server
 func (c *Client) downloadFile(uploadParams *common.Upload, fileParams *common.File) (reader io.ReadCloser, err error) {
-	URL := c.URL + "/file/" + uploadParams.ID + "/" + fileParams.ID + "/" + fileParams.Name
+	URL := c.URL + "/file/" + uploadParams.ID + "/" + fileParams.ID + "/" + url.PathEscape(fileParams.Name)
 
-	req, err := c.UploadRequest(uploadParams, "GET", URL, nil)
+	req, err := c.uploadRequest(uploadParams, "GET", URL, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := c.MakeRequest(req)
+	resp, err := c.makeRequest(req)
 	if err != nil {
 		return nil, err
 	}
@@ -232,12 +233,12 @@ func (c *Client) downloadFile(uploadParams *common.Upload, fileParams *common.Fi
 func (c *Client) downloadArchive(uploadParams *common.Upload) (reader io.ReadCloser, err error) {
 	URL := c.URL + "/archive/" + uploadParams.ID + "/archive.zip"
 
-	req, err := c.UploadRequest(uploadParams, "GET", URL, nil)
+	req, err := c.uploadRequest(uploadParams, "GET", URL, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := c.MakeRequest(req)
+	resp, err := c.makeRequest(req)
 	if err != nil {
 		return nil, err
 	}
@@ -247,14 +248,14 @@ func (c *Client) downloadArchive(uploadParams *common.Upload) (reader io.ReadClo
 
 // removeFile remove the remote file from the server
 func (c *Client) removeFile(uploadParams *common.Upload, fileParams *common.File) (err error) {
-	URL := c.URL + "/file/" + uploadParams.ID + "/" + fileParams.ID + "/" + fileParams.Name
+	URL := c.URL + "/file/" + uploadParams.ID + "/" + fileParams.ID + "/" + url.PathEscape(fileParams.Name)
 
-	req, err := c.UploadRequest(uploadParams, "DELETE", URL, nil)
+	req, err := c.uploadRequest(uploadParams, "DELETE", URL, nil)
 	if err != nil {
 		return err
 	}
 
-	resp, err := c.MakeRequest(req)
+	resp, err := c.makeRequest(req)
 	if err != nil {
 		return err
 	}
@@ -267,12 +268,12 @@ func (c *Client) removeFile(uploadParams *common.Upload, fileParams *common.File
 // removeUpload remove the remote upload and all the associated files from the server
 func (c *Client) removeUpload(uploadParams *common.Upload) (err error) {
 	URL := c.URL + "/upload/" + uploadParams.ID
-	req, err := c.UploadRequest(uploadParams, "DELETE", URL, nil)
+	req, err := c.uploadRequest(uploadParams, "DELETE", URL, nil)
 	if err != nil {
 		return err
 	}
 
-	resp, err := c.MakeRequest(req)
+	resp, err := c.makeRequest(req)
 	if err != nil {
 		return err
 	}
@@ -282,11 +283,11 @@ func (c *Client) removeUpload(uploadParams *common.Upload) (err error) {
 	return nil
 }
 
-// MakeRequest perform an HTTP request to a Plik Server HTTP API.
+// makeRequest perform an HTTP request to a Plik Server HTTP API.
 //   - Manage request header X-ClientApp and X-ClientVersion
 //   - Log the request and response if the client is in Debug mode
 //   - Parsing response error to Go error
-func (c *Client) MakeRequest(req *http.Request) (resp *http.Response, err error) {
+func (c *Client) makeRequest(req *http.Request) (resp *http.Response, err error) {
 
 	// Set client version headers
 	if c.ClientName != "" {
@@ -307,7 +308,7 @@ func (c *Client) MakeRequest(req *http.Request) (resp *http.Response, err error)
 		}
 		dump, err := httputil.DumpRequest(req, dumpBody)
 		if err == nil {
-			fmt.Println(string(dump))
+			fmt.Fprintln(os.Stderr, string(dump))
 		} else {
 			return nil, fmt.Errorf("unable to dump HTTP request : %s", err)
 		}
@@ -331,7 +332,7 @@ func (c *Client) MakeRequest(req *http.Request) (resp *http.Response, err error)
 		}
 		dump, err := httputil.DumpResponse(resp, dumpBody)
 		if err == nil {
-			fmt.Println(string(dump))
+			fmt.Fprintln(os.Stderr, string(dump))
 		} else {
 			return nil, fmt.Errorf("unable to dump HTTP response : %s", err)
 		}
@@ -343,10 +344,10 @@ func (c *Client) MakeRequest(req *http.Request) (resp *http.Response, err error)
 func parseErrorResponse(resp *http.Response) (err error) {
 	defer func() { _ = resp.Body.Close() }()
 
-	// Reade response body
+	// Read response body
 
 	var body []byte
-	body, err = io.ReadAll(resp.Body)
+	body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return err
 	}

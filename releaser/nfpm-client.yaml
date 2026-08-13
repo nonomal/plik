@@ -1,0 +1,30 @@
+# nfpm configuration for plik-client
+# https://nfpm.goreleaser.com/configuration/
+#
+# Build with:
+#   nfpm pkg --config releaser/nfpm-client.yaml --packager deb --target releases/
+
+name: plik-client
+arch: "${DEB_ARCH}"
+platform: linux
+version: "${VERSION}"
+section: utils
+priority: optional
+maintainer: "Mathieu Bodjikian <mathieu@bodjikian.fr>"
+description: |
+  Plik CLI client - Command-line file upload tool.
+  Upload files to a Plik server from the terminal.
+vendor: root-gg
+homepage: https://github.com/root-gg/plik
+license: MIT
+
+contents:
+  - src: release/client/plik
+    dst: /usr/bin/plik
+    file_info:
+      mode: 0755
+
+overrides:
+  deb:
+    conflicts:
+      - plik-client

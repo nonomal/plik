@@ -1,0 +1,25 @@
+[Unit]
+Description=Plik - Multi-backend uploading system
+Documentation=https://github.com/root-gg/plik
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=plik
+Group=plik
+ExecStart=/usr/bin/plikd --config /etc/plik/plikd.cfg
+WorkingDirectory=/var/lib/plik
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/plik
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -11,18 +11,27 @@ const ProviderGoogle = "google"
 // ProviderOVH for authentication
 const ProviderOVH = "ovh"
 
+// ProviderOIDC for authentication
+const ProviderOIDC = "oidc"
+
+// ProviderGitHub for authentication
+const ProviderGitHub = "github"
+
 // ProviderLocal for authentication
 const ProviderLocal = "local"
 
 // User is a Plik user
 type User struct {
-	ID       string `json:"id,omitempty"`
-	Provider string `json:"provider"`
-	Login    string `json:"login,omitempty"`
-	Password string `json:"-"`
-	Name     string `json:"name,omitempty"`
-	Email    string `json:"email,omitempty"`
-	IsAdmin  bool   `json:"admin"`
+	ID             string `json:"id,omitempty"`
+	Provider       string `json:"provider"`
+	Login          string `json:"login,omitempty"`
+	Password       string `json:"-"`
+	Name           string `json:"name,omitempty"`
+	Email          string `json:"email,omitempty"`
+	ProfilePicture string `json:"profilePicture,omitempty"` // URL of the user's avatar from the OAuth provider (Google, OIDC)
+	Theme          string `json:"theme,omitempty"`          // User's preferred theme (synced from webapp, empty = not set)
+	Language       string `json:"language,omitempty"`       // User's preferred language (synced from webapp, empty = not set)
+	IsAdmin        bool   `json:"admin"`
 
 	MaxFileSize int64 `json:"maxFileSize"`
 	MaxUserSize int64 `json:"maxUserSize"`
@@ -49,7 +58,7 @@ func GetUserID(provider string, providerID string) string {
 // IsValidProvider return true if the provider string is valid
 func IsValidProvider(provider string) bool {
 	switch provider {
-	case ProviderLocal, ProviderGoogle, ProviderOVH:
+	case ProviderLocal, ProviderGoogle, ProviderOVH, ProviderOIDC, ProviderGitHub:
 		return true
 	default:
 		return false
@@ -64,9 +73,18 @@ func (user *User) NewToken() (token *Token) {
 	return token
 }
 
-// NewToken add a new token to a user
+// String returns the user ID (as expected by the CLI --login flag) followed by
+// the login when it differs from the ID (OIDC users are keyed by the sub claim
+// while their login holds the preferred username), then name and email.
 func (user *User) String() string {
-	str := user.Provider + ":" + user.Login
+	id := user.ID
+	if id == "" {
+		id = GetUserID(user.Provider, user.Login)
+	}
+	str := id
+	if id != GetUserID(user.Provider, user.Login) {
+		str += " " + user.Login
+	}
 	if user.Name != "" {
 		str += " " + user.Name
 	}

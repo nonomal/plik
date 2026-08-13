@@ -102,6 +102,15 @@ func (ps *PlikServer) Clean() {
 	stats.OrphanFilesCleaned = files
 	stats.OrphanTokensCleaned = tokens
 
+	// 5 - clean expired CLI auth sessions
+	cliSessions, err := ps.metadataBackend.DeleteExpiredCLIAuthSessions()
+	if cliSessions > 0 {
+		log.Infof("cleaned %d expired CLI auth sessions", cliSessions)
+	}
+	if err != nil {
+		log.Warning(err.Error())
+	}
+
 	elapsed := time.Since(start)
 	ps.metrics.UpdateCleaningStatistics(stats, elapsed)
 }

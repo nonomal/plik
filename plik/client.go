@@ -95,13 +95,13 @@ func (c *Client) GetServerVersion() (bi *common.BuildInfo, err error) {
 		return nil, err
 	}
 
-	resp, err := c.MakeRequest(req)
+	resp, err := c.makeRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err
 	}
@@ -124,13 +124,13 @@ func (c *Client) GetServerConfig() (config *common.Configuration, err error) {
 		return nil, err
 	}
 
-	resp, err := c.MakeRequest(req)
+	resp, err := c.makeRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err
 	}

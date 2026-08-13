@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/root-gg/plik/server/common"
 	"github.com/root-gg/plik/server/context"
@@ -20,10 +21,22 @@ func GetFile(ctx *context.Context, resp http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	// Set CORS headers for cross-origin file viewer / E2EE decrypt fetch
+	setCORSHeaders(ctx, resp, req)
+
 	// Get upload from context
 	upload := ctx.GetUpload()
 	if upload == nil {
 		panic("missing upload from context")
+	}
+
+	// For E2EE uploads, redirect the webapp to the download page
+	// so decryption can happen client-side
+	if upload.E2EE != "" && common.IsPlikWebapp(req) {
+		config := ctx.GetConfig()
+		redirectURL := fmt.Sprintf("%s/#/?id=%s", config.Path, upload.ID)
+		http.Redirect(resp, req, redirectURL, http.StatusTemporaryRedirect)
+		return
 	}
 
 	// Get file from context
@@ -51,29 +64,35 @@ func GetFile(ctx *context.Context, resp http.ResponseWriter, req *http.Request) 
 		err := ctx.GetMetadataBackend().UpdateFileStatus(file, file.Status, common.FileRemoved)
 		if err != nil {
 			ctx.InternalServerError("unable to update file status", err)
+			return
 		}
 	}
 
-	// Avoid rendering HTML in browser
-	if strings.Contains(file.Type, "html") {
-		file.Type = "text/plain"
+	// Neutralize content types that could execute code in the browser
+	// Force download as binary to prevent XSS via inline scripts, SVG onload handlers, etc.
+	if file.Type == "" ||
+		strings.Contains(file.Type, "html") ||
+		strings.Contains(file.Type, "svg") ||
+		strings.Contains(file.Type, "xml") ||
+		strings.Contains(file.Type, "javascript") ||
+		strings.Contains(file.Type, "flash") ||
+		strings.Contains(file.Type, "pdf") {
+		file.Type = "application/octet-stream"
 	}
 
-	// Force the download of the following types as they are blocked by the CSP Header and won't display properly.
-	if file.Type == "" || strings.Contains(file.Type, "flash") || strings.Contains(file.Type, "pdf") {
+	// For E2EE uploads, always serve as binary data — content-type detection
+	// on encrypted bytes is meaningless
+	if upload.E2EE != "" {
 		file.Type = "application/octet-stream"
 	}
 
 	// Set content type and print file
 	resp.Header().Set("Content-Type", file.Type)
 
-	/* Additional security headers for possibly unsafe content */
-	if ctx.GetConfig().EnhancedWebSecurity {
-		resp.Header().Set("X-Content-Type-Options", "nosniff")
-		resp.Header().Set("X-XSS-Protection", "1; mode=block")
-		resp.Header().Set("X-Frame-Options", "DENY")
-		resp.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'none'; style-src 'none'; img-src 'none'; connect-src 'none'; font-src 'none'; object-src 'none'; media-src 'self'; child-src 'none'; form-action 'none'; frame-ancestors 'none'; plugin-types; sandbox")
-	}
+	/* Security headers — always set */
+	resp.Header().Set("X-Content-Type-Options", "nosniff")
+	resp.Header().Set("X-Frame-Options", "DENY")
+	resp.Header().Set("Content-Security-Policy", "default-src 'none'; media-src 'self'; form-action 'none'; frame-ancestors 'none'; sandbox")
 
 	/* Additional header for disabling cache if the upload is OneShot */
 	if upload.OneShot || upload.Stream { // If this is a one shot or stream upload we have to ensure it's downloaded only once.
@@ -82,42 +101,54 @@ func GetFile(ctx *context.Context, resp http.ResponseWriter, req *http.Request) 
 		resp.Header().Set("Expires", "0")                                         // Proxies
 	}
 
-	if file.Size > 0 {
-		resp.Header().Set("Content-Length", strconv.Itoa(int(file.Size)))
-	}
-
 	// If "dl" GET params is set
 	// -> Set Content-Disposition header
 	// -> The client should download file instead of displaying it
 	dl := req.URL.Query().Get("dl")
 	if dl != "" {
-		resp.Header().Set("Content-Disposition", fmt.Sprintf(`attachement; filename="%s"`, file.Name))
+		resp.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, common.SanitizeFilenameForDisposition(file.Name)))
 	} else {
-		resp.Header().Set("Content-Disposition", fmt.Sprintf(`filename="%s"`, file.Name))
+		resp.Header().Set("Content-Disposition", fmt.Sprintf(`filename="%s"`, common.SanitizeFilenameForDisposition(file.Name)))
 	}
 
 	// HEAD Request => Do not print file, user just wants http headers
 	// GET  Request => Print file content
-	if req.Method == "GET" {
-		// Get file in data backend
-		var backend data.Backend
-		if upload.Stream {
-			backend = ctx.GetStreamBackend()
-		} else {
-			backend = ctx.GetDataBackend()
-		}
-
+	if !upload.Stream && !upload.OneShot {
+		backend := ctx.GetDataBackend()
 		fileReader, err := backend.GetFile(file)
 		if err != nil {
 			ctx.InternalServerError("unable to get file from data backend", err)
 			return
 		}
 		defer func() { _ = fileReader.Close() }()
+		http.ServeContent(resp, req, file.Name, time.Time{}, fileReader)
+	} else {
+		// Set content length otherwise handled by http.ServeContent
+		if file.Size > 0 && !upload.Stream {
+			resp.Header().Set("Content-Length", strconv.FormatInt(file.Size, 10))
+		}
 
-		// File is piped directly to http response body without buffering
-		_, err = io.Copy(resp, fileReader)
-		if err != nil {
-			log.Warningf("error while copying file to response : %s", err)
+		if req.Method == "GET" {
+			// Get file in data backend
+			var backend data.Backend
+			if upload.Stream {
+				backend = ctx.GetStreamBackend()
+			} else {
+				backend = ctx.GetDataBackend()
+			}
+
+			fileReader, err := backend.GetFile(file)
+			if err != nil {
+				ctx.InternalServerError("unable to get file from data backend", err)
+				return
+			}
+			defer func() { _ = fileReader.Close() }()
+
+			// File is piped directly to http response body without buffering
+			_, err = io.Copy(resp, fileReader)
+			if err != nil {
+				log.Warningf("error while copying file to response : %s", err)
+			}
 		}
 	}
 

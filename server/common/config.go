@@ -3,6 +3,7 @@ package common
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -24,9 +25,10 @@ const envPrefix = "PLIKD_"
 
 // Configuration object
 type Configuration struct {
-	Debug         bool   `json:"-"`
-	DebugRequests bool   `json:"-"`
-	LogLevel      string `json:"-"`
+	Debug         bool      `json:"-"`
+	DebugRequests bool      `json:"-"`
+	LogLevel      string    `json:"-"`
+	LogOutput     io.Writer `json:"-"` // Destination for server logs (default: os.Stdout)
 
 	ListenAddress  string `json:"-"`
 	ListenPort     int    `json:"-"`
@@ -51,20 +53,29 @@ type Configuration struct {
 	TlsVersion string `json:"-"`
 
 	NoWebInterface      bool     `json:"-"`
+	PlikDomain          string   `json:"plikDomain"`
 	DownloadDomain      string   `json:"downloadDomain"`
 	DownloadDomainAlias []string `json:"downloadDomainAlias"`
-	EnhancedWebSecurity bool     `json:"-"`
+	DownloadURL         string   `json:"downloadURL,omitempty" toml:"-"` // Computed in Initialize(): only when PlikDomain or DownloadDomain is set
+	EnhancedWebSecurity bool     `json:"-"`                              // Deprecated: use AssumeHTTPS instead
+	AssumeHTTPS         bool     `json:"-"`                              // Enable HSTS + Secure cookies (auto from SslEnabled or https:// PlikDomain)
 	SessionTimeout      string   `json:"-"`
+	StreamTimeoutStr    string   `json:"-"`
+	StreamTimeout       int      `json:"streamTimeout"`
 	AbuseContact        string   `json:"abuseContact"`
 	WebappDirectory     string   `json:"-"`
 	ClientsDirectory    string   `json:"-"`
 	ChangelogDirectory  string   `json:"-"`
+
+	EnableArchiveCompression bool `json:"-"`
 
 	SourceIPHeader  string   `json:"-"`
 	UploadWhitelist []string `json:"-"`
 
 	// Feature Flags
 	FeatureAuthentication string `json:"feature_authentication"`
+	FeatureLocalLogin     string `json:"feature_local_login"`
+	FeatureDeleteAccount  string `json:"feature_delete_account"`
 	FeatureOneShot        string `json:"feature_one_shot"`
 	FeatureRemovable      string `json:"feature_removable"`
 	FeatureStream         string `json:"feature_stream"`
@@ -73,8 +84,10 @@ type Configuration struct {
 	FeatureSetTTL         string `json:"feature_set_ttl"`
 	FeatureExtendTTL      string `json:"feature_extend_ttl"`
 	FeatureClients        string `json:"feature_clients"`
+	FeatureApiTokens      string `json:"feature_api_tokens"`
 	FeatureGithub         string `json:"feature_github"`
 	FeatureText           string `json:"feature_text"`
+	FeatureE2EE           string `json:"feature_e2ee"`
 
 	// Deprecated Feature Flags
 	Authentication      bool `json:"authentication"`      // Deprecated: >1.3.6
@@ -93,11 +106,30 @@ type Configuration struct {
 	OvhAPIKey            string   `json:"-"`
 	OvhAPISecret         string   `json:"-"`
 
-	MetadataBackendConfig map[string]interface{} `json:"-"`
+	LocalAuthentication bool `json:"-"`
 
-	DataBackend       string                 `json:"-"`
-	DataBackendConfig map[string]interface{} `json:"-"`
+	OIDCAuthentication       bool     `json:"oidcAuthentication"`
+	OIDCClientID             string   `json:"-"`
+	OIDCClientSecret         string   `json:"-"`
+	OIDCProviderURL          string   `json:"-"`
+	OIDCProviderName         string   `json:"oidcProviderName"`
+	OIDCValidDomains         []string `json:"-"`
+	OIDCRequireVerifiedEmail bool     `json:"-"`
 
+	GitHubAuthentication     bool     `json:"githubAuthentication"`
+	GitHubAPIClientID        string   `json:"-"`
+	GitHubAPISecret          string   `json:"-"`
+	GitHubValidOrganizations []string `json:"-"`
+
+	DefaultAdminLogin    string `json:"-"`
+	DefaultAdminPassword string `json:"-"`
+
+	MetadataBackendConfig map[string]any `json:"-"`
+
+	DataBackend       string         `json:"-"`
+	DataBackendConfig map[string]any `json:"-"`
+
+	plikDomainURL          *url.URL
 	downloadDomainURL      *url.URL
 	downloadDomainURLAlias []*url.URL
 	uploadWhitelist        []*net.IPNet
@@ -115,11 +147,11 @@ func NewConfiguration() (config *Configuration) {
 	config.ListenPort = 8080
 	config.MetricsAddress = "0.0.0.0"
 	config.MetricsPort = 0
-	config.EnhancedWebSecurity = false
 	config.SessionTimeout = "365d"
+	config.StreamTimeoutStr = "5m"
 
 	config.MaxFileSize = 10000000000 // 10GB
-	config.MaxUserSize = -1          // Default max size per user ( -1 for unlimited)
+	config.MaxUserSize = -1          // Default max size per user (-1 for unlimited)
 	config.MaxFilePerUpload = 1000
 
 	config.DefaultTTL = 2592000 // 30 days
@@ -134,12 +166,17 @@ func NewConfiguration() (config *Configuration) {
 
 	config.OvhAPIEndpoint = "https://eu.api.ovh.com/1.0"
 
+	config.OIDCProviderName = "OpenID"
+
+	config.EnableArchiveCompression = true
+
 	config.DataBackend = "file"
 
 	config.WebappDirectory = "../webapp/dist"
 	config.ClientsDirectory = "../clients"
 	config.ChangelogDirectory = "../changelog"
 
+	config.LogOutput = os.Stdout
 	config.clean = true
 	return
 }
@@ -178,7 +215,10 @@ func (config *Configuration) EnvironmentOverride() (err error) {
 	return utils.AssignStrings(config, getEnvOverride)
 }
 
-// Initialize config internal parameters
+// Initialize config internal parameters.
+// Warnings about misconfigured domain options (e.g. path components in PlikDomain /
+// DownloadDomain) are written to config.LogOutput. Set config.LogOutput = io.Discard
+// to suppress them.
 func (config *Configuration) Initialize() (err error) {
 
 	// For backward compatibility
@@ -208,22 +248,82 @@ func (config *Configuration) Initialize() (err error) {
 
 	config.GoogleAuthentication = config.FeatureAuthentication != FeatureDisabled && config.GoogleAPIClientID != "" && config.GoogleAPISecret != ""
 	config.OvhAuthentication = config.FeatureAuthentication != FeatureDisabled && config.OvhAPIKey != "" && config.OvhAPISecret != ""
+	config.OIDCAuthentication = config.FeatureAuthentication != FeatureDisabled && config.OIDCClientID != "" && config.OIDCClientSecret != "" && config.OIDCProviderURL != ""
+	config.GitHubAuthentication = config.FeatureAuthentication != FeatureDisabled && config.GitHubAPIClientID != "" && config.GitHubAPISecret != ""
+	config.LocalAuthentication = config.FeatureAuthentication != FeatureDisabled && config.FeatureLocalLogin != FeatureDisabled
+
+	if config.DefaultAdminLogin != "" {
+		if config.FeatureAuthentication == FeatureDisabled {
+			return fmt.Errorf("DefaultAdminLogin is set but FeatureAuthentication is disabled")
+		}
+		if config.FeatureLocalLogin == FeatureDisabled {
+			return fmt.Errorf("DefaultAdminLogin is set but FeatureLocalLogin is disabled")
+		}
+		if len(config.DefaultAdminLogin) < 4 {
+			return fmt.Errorf("DefaultAdminLogin is too short (min 4 chars)")
+		}
+		if config.DefaultAdminPassword != "" && len(config.DefaultAdminPassword) < 8 {
+			return fmt.Errorf("DefaultAdminPassword is too short (min 8 chars)")
+		}
+	}
+
+	// Validate that at least one authentication method is available when authentication is enabled
+	if config.FeatureAuthentication != FeatureDisabled &&
+		!config.LocalAuthentication && !config.GoogleAuthentication && !config.OvhAuthentication && !config.OIDCAuthentication && !config.GitHubAuthentication {
+		return fmt.Errorf("authentication is enabled but no authentication method is available, enable at least one of : FeatureLocalLogin, Google, OVH, OIDC, or GitHub")
+	}
+
+	if config.PlikDomain != "" {
+		config.PlikDomain = strings.Trim(config.PlikDomain, "/ ")
+		var err error
+		if config.plikDomainURL, err = url.Parse(config.PlikDomain); err != nil {
+			return fmt.Errorf("invalid plik domain URL %s : %s", config.PlikDomain, err)
+		}
+		if config.plikDomainURL.Path != "" && config.plikDomainURL.Path != "/" {
+			fmt.Fprintf(config.LogOutput, "[WARNING] PlikDomain %q contains a path component %q which will be ignored — use the Path config option instead\n", config.PlikDomain, config.plikDomainURL.Path)
+			config.plikDomainURL.Path = ""
+			config.PlikDomain = config.plikDomainURL.String()
+		}
+	}
 
 	if config.DownloadDomain != "" {
-		strings.Trim(config.DownloadDomain, "/ ")
+		config.DownloadDomain = strings.Trim(config.DownloadDomain, "/ ")
 		var err error
 		if config.downloadDomainURL, err = url.Parse(config.DownloadDomain); err != nil {
 			return fmt.Errorf("invalid download domain URL %s : %s", config.DownloadDomain, err)
 		}
+		if config.downloadDomainURL.Path != "" && config.downloadDomainURL.Path != "/" {
+			fmt.Fprintf(config.LogOutput, "[WARNING] DownloadDomain %q contains a path component %q which will be ignored — use the Path config option instead\n", config.DownloadDomain, config.downloadDomainURL.Path)
+			config.downloadDomainURL.Path = ""
+			config.DownloadDomain = config.downloadDomainURL.String()
+		}
 
-		for _, domainAlias := range config.DownloadDomainAlias {
-			domainAlias, err := url.Parse(domainAlias)
+		for _, alias := range config.DownloadDomainAlias {
+			domainAlias, err := url.Parse(alias)
 			if err != nil {
 				return fmt.Errorf("invalid download domain URL %s : %s", domainAlias, err)
 			}
+			if domainAlias.Path != "" && domainAlias.Path != "/" {
+				fmt.Fprintf(config.LogOutput, "[WARNING] DownloadDomainAlias %q contains a path component %q which will be ignored\n", alias, domainAlias.Path)
+				domainAlias.Path = ""
+			}
 			config.downloadDomainURLAlias = append(config.downloadDomainURLAlias, domainAlias)
 		}
+
+		if config.plikDomainURL != nil && config.IsDownloadDomain(config.plikDomainURL.Host) {
+			return fmt.Errorf("PlikDomain and DownloadDomain must be different domains (%s), using the same domain would cause redirect loops", config.plikDomainURL.Host)
+		}
+
 	}
+
+	// Compute DownloadURL only when a public domain is known.
+	// Without PlikDomain/DownloadDomain, GetServerURL() returns the internal listen address
+	// which is not accessible to clients — omit the field so they fall back to client.URL.
+	if config.plikDomainURL != nil || config.downloadDomainURL != nil {
+		config.DownloadURL = config.GetDownloadURL().String()
+	}
+
+	config.initializeAssumeHTTPS()
 
 	if config.MaxFileSizeStr == "unlimited" || config.MaxFileSizeStr == "-1" {
 		config.MaxFileSize = int64(-1)
@@ -271,7 +371,34 @@ func (config *Configuration) Initialize() (err error) {
 		return fmt.Errorf("invalid negative or zero value for SessionTimeout")
 	}
 
+	if config.StreamTimeoutStr != "" {
+		config.StreamTimeout, err = ParseTTL(config.StreamTimeoutStr)
+		if err != nil {
+			return fmt.Errorf("unable to parse StreamTimeout : %s", err)
+		}
+		if config.StreamTimeout < 0 {
+			return fmt.Errorf("invalid negative value for StreamTimeout")
+		}
+	}
+
 	return nil
+}
+
+// initializeAssumeHTTPS promotes AssumeHTTPS to true when any of these conditions hold:
+//   - Legacy EnhancedWebSecurity is true (deprecated — logs a warning)
+//   - SslEnabled is true (plikd handles TLS directly)
+//   - PlikDomain scheme is https (admin declared an HTTPS public URL)
+func (config *Configuration) initializeAssumeHTTPS() {
+	if config.EnhancedWebSecurity {
+		fmt.Fprintln(config.LogOutput, "[WARNING] EnhancedWebSecurity is deprecated — use AssumeHTTPS = true instead")
+		config.AssumeHTTPS = true
+	}
+	if config.SslEnabled {
+		config.AssumeHTTPS = true
+	}
+	if config.plikDomainURL != nil && config.plikDomainURL.Scheme == "https" {
+		config.AssumeHTTPS = true
+	}
 }
 
 // NewLogger returns a new logger instance
@@ -280,7 +407,7 @@ func (config *Configuration) NewLogger() (log *logger.Logger) {
 	if config.Debug {
 		level = "DEBUG"
 	}
-	return logger.NewLogger().SetMinLevelFromString(level).SetFlags(logger.Fdate | logger.Flevel | logger.FfixedSizeLevel)
+	return logger.NewLogger().SetMinLevelFromString(level).SetFlags(logger.Fdate | logger.Flevel | logger.FfixedSizeLevel).SetOutput(config.LogOutput)
 }
 
 // GetUploadWhitelist return the parsed IP upload whitelist
@@ -288,22 +415,42 @@ func (config *Configuration) GetUploadWhitelist() []*net.IPNet {
 	return config.uploadWhitelist
 }
 
+// GetPlikDomain return the parsed plik domain URL
+func (config *Configuration) GetPlikDomain() *url.URL {
+	return config.plikDomainURL
+}
+
 // GetDownloadDomain return the parsed download domain URL
 func (config *Configuration) GetDownloadDomain() *url.URL {
 	return config.downloadDomainURL
 }
 
-// IsValidDownloadDomain return weather or not the host is a valid download domain
-func (config *Configuration) IsValidDownloadDomain(host string) bool {
+// GetDownloadDomainAlias return the parsed download domain alias URLs
+func (config *Configuration) GetDownloadDomainAlias() []*url.URL {
+	return config.downloadDomainURLAlias
+}
+
+// GetCORSOrigin returns the Access-Control-Allow-Origin value for download endpoints.
+// When both PlikDomain and DownloadDomain are configured, returns the PlikDomain origin
+// so the webapp can fetch file content cross-origin. Returns empty string otherwise.
+func (config *Configuration) GetCORSOrigin() string {
+	if config.plikDomainURL != nil && config.downloadDomainURL != nil {
+		return config.PlikDomain
+	}
+	return ""
+}
+
+// IsDownloadDomain returns true if the host matches the configured download domain
+// or any of its aliases. Returns false if no download domain is configured.
+func (config *Configuration) IsDownloadDomain(host string) bool {
 	if config.downloadDomainURL == nil {
-		return true
+		return false
 	}
 
 	if config.downloadDomainURL.Host == host {
 		return true
 	}
 
-	// Check if the host is in the config domain alias
 	for _, urlAlias := range config.downloadDomainURLAlias {
 		if urlAlias.Host == host {
 			return true
@@ -313,18 +460,27 @@ func (config *Configuration) IsValidDownloadDomain(host string) bool {
 	return false
 }
 
+// IsValidDownloadDomain return whether or not the host is a valid download domain.
+// Returns true if no download domain is configured (all hosts are valid).
+func (config *Configuration) IsValidDownloadDomain(host string) bool {
+	if config.downloadDomainURL == nil {
+		return true
+	}
+	return config.IsDownloadDomain(host)
+}
+
 // AutoClean enable or disables the periodical upload cleaning goroutine.
 // This needs to be called before Plik server starts to have effect
 func (config *Configuration) AutoClean(value bool) {
 	config.clean = value
 }
 
-// IsAutoClean return weather or not to start the cleaning goroutine
+// IsAutoClean return whether or not to start the cleaning goroutine
 func (config *Configuration) IsAutoClean() bool {
 	return config.clean
 }
 
-// IsWhitelisted return weather or not the IP matches of the config upload whitelist
+// IsWhitelisted return whether or not the IP matches of the config upload whitelist
 func (config *Configuration) IsWhitelisted(ip net.IP) bool {
 	if len(config.uploadWhitelist) == 0 {
 		// Empty whitelist == accept all
@@ -341,8 +497,16 @@ func (config *Configuration) IsWhitelisted(ip net.IP) bool {
 	return false
 }
 
-// GetServerURL is a helper to get the server HTTP URL
+// GetServerURL is a helper to get the server HTTP URL.
+// When PlikDomain is configured it returns the public-facing URL,
+// otherwise falls back to ListenAddress:ListenPort.
 func (config *Configuration) GetServerURL() *url.URL {
+	if config.plikDomainURL != nil {
+		u := *config.plikDomainURL // copy
+		u.Path = config.Path
+		return &u
+	}
+
 	URL := &url.URL{}
 
 	if config.SslEnabled {
@@ -364,6 +528,44 @@ func (config *Configuration) GetServerURL() *url.URL {
 	return URL
 }
 
+// GetDownloadURL returns the base URL for file download links.
+// Uses DownloadDomain + Path when configured, otherwise falls back to GetServerURL().
+func (config *Configuration) GetDownloadURL() *url.URL {
+	if config.downloadDomainURL != nil {
+		u := *config.downloadDomainURL
+		u.Path = config.Path
+		return &u
+	}
+	return config.GetServerURL()
+}
+
+// GetFileURL returns the full download URL for a file.
+// When stream is true, uses the /stream/ endpoint instead of /file/.
+func (config *Configuration) GetFileURL(uploadID, fileID, fileName string, stream bool) string {
+	mode := "file"
+	if stream {
+		mode = "stream"
+	}
+	u := config.GetDownloadURL()
+	// Set Path (decoded) for correct URL semantics, and RawPath (encoded) so .String()
+	// emits exactly one level of percent-encoding (no double-encoding).
+	rawSuffix := fmt.Sprintf("/%s/%s/%s/%s", mode, uploadID, fileID, url.PathEscape(fileName))
+	decodedSuffix := fmt.Sprintf("/%s/%s/%s/%s", mode, uploadID, fileID, fileName)
+	u.RawPath = u.Path + rawSuffix
+	u.Path = u.Path + decodedSuffix
+	return u.String()
+}
+
+// GetArchiveURL returns the full download URL for an upload archive.
+func (config *Configuration) GetArchiveURL(uploadID, archiveName string) string {
+	u := config.GetDownloadURL()
+	rawSuffix := fmt.Sprintf("/archive/%s/%s", uploadID, url.PathEscape(archiveName))
+	decodedSuffix := fmt.Sprintf("/archive/%s/%s", uploadID, archiveName)
+	u.RawPath = u.Path + rawSuffix
+	u.Path = u.Path + decodedSuffix
+	return u.String()
+}
+
 // GetTlsVersion is a helper to get the TLS version
 func (config *Configuration) GetTlsVersion() uint16 {
 	if config.TlsVersion == "tlsv10" {
@@ -379,7 +581,7 @@ func (config *Configuration) GetTlsVersion() uint16 {
 		return tls.VersionTLS13
 	}
 
-	return tls.VersionTLS10
+	return tls.VersionTLS12
 }
 
 // GetPath return the web API/UI root path
@@ -395,8 +597,16 @@ func (config *Configuration) GetSessionTimeout() int {
 	return config.sessionTimeout
 }
 
+// GetStreamTimeout return parsed stream timeout in seconds (0 = disabled)
+func (config *Configuration) GetStreamTimeout() int {
+	return config.StreamTimeout
+}
+
 func (config *Configuration) String() string {
 	str := ""
+	if config.PlikDomain != "" {
+		str += fmt.Sprintf("Plik domain : %s\n", config.PlikDomain)
+	}
 	if config.DownloadDomain != "" {
 		str += fmt.Sprintf("Download domain : %s\n", config.DownloadDomain)
 		if len(config.DownloadDomainAlias) > 0 {
@@ -422,10 +632,18 @@ func (config *Configuration) String() string {
 	str += fmt.Sprintf("One shot upload : %s\n", config.FeatureOneShot)
 	str += fmt.Sprintf("Removable upload : %s\n", config.FeatureRemovable)
 	str += fmt.Sprintf("Streaming upload : %s\n", config.FeatureStream)
+	if config.StreamTimeout > 0 {
+		str += fmt.Sprintf("Stream timeout : %s\n", config.StreamTimeoutStr)
+	} else {
+		str += "Stream timeout : disabled\n"
+	}
 	str += fmt.Sprintf("Upload password : %s\n", config.FeaturePassword)
 	str += fmt.Sprintf("Upload comments : %s\n", config.FeatureComments)
 	str += fmt.Sprintf("Upload set TTL : %s\n", config.FeatureSetTTL)
 	str += fmt.Sprintf("Upload extend TTL : %s\n", config.FeatureExtendTTL)
+	str += fmt.Sprintf("E2E encryption : %s\n", config.FeatureE2EE)
+	str += fmt.Sprintf("Delete account : %s\n", config.FeatureDeleteAccount)
+	str += fmt.Sprintf("Archive compression : %t\n", config.EnableArchiveCompression)
 
 	str += fmt.Sprintf("Authentication : %s\n", config.FeatureAuthentication)
 	if config.FeatureAuthentication != FeatureDisabled {
@@ -443,6 +661,21 @@ func (config *Configuration) String() string {
 		} else {
 			str += "OVH authentication : disabled\n"
 		}
+
+		if config.OIDCAuthentication {
+			str += fmt.Sprintf("OIDC authentication : enabled (%s)\n", config.OIDCProviderName)
+			str += fmt.Sprintf("OIDC provider URL : %s\n", config.OIDCProviderURL)
+		} else {
+			str += "OIDC authentication : disabled\n"
+		}
+
+		if config.GitHubAuthentication {
+			str += "GitHub authentication : enabled\n"
+		} else {
+			str += "GitHub authentication : disabled\n"
+		}
+
+		str += fmt.Sprintf("Local login : %s\n", config.FeatureLocalLogin)
 	}
 
 	return str

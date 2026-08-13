@@ -1,10 +1,12 @@
 package common
 
 import (
-	"github.com/root-gg/logger"
+	"crypto/tls"
 	"net"
 	"os"
 	"testing"
+
+	"github.com/root-gg/logger"
 
 	"github.com/iancoleman/strcase"
 
@@ -75,6 +77,7 @@ func TestIsWhitelisted(t *testing.T) {
 
 func TestInitializeConfigAuthentication(t *testing.T) {
 	config := NewConfiguration()
+	config.FeatureAuthentication = FeatureEnabled
 	config.GoogleAPIClientID = "google_api_client_id"
 	config.GoogleAPISecret = "google_api_secret"
 	config.OvhAPIKey = "ovh_api_key"
@@ -84,6 +87,121 @@ func TestInitializeConfigAuthentication(t *testing.T) {
 	require.NoError(t, err, "unable to initialize config")
 }
 
+func TestInitializeConfigAuthenticationNoMethod(t *testing.T) {
+	// Auth enabled but local login disabled and no OAuth configured → should fail
+	config := NewConfiguration()
+	config.FeatureAuthentication = FeatureEnabled
+	config.FeatureLocalLogin = FeatureDisabled
+
+	err := config.Initialize()
+	RequireError(t, err, "no authentication method is available")
+
+	// Auth forced but local login disabled and no OAuth configured → should fail
+	config = NewConfiguration()
+	config.FeatureAuthentication = FeatureForced
+	config.FeatureLocalLogin = FeatureDisabled
+
+	err = config.Initialize()
+	RequireError(t, err, "no authentication method is available")
+
+	// Auth disabled → should be fine regardless
+	config = NewConfiguration()
+	config.FeatureAuthentication = FeatureDisabled
+	config.FeatureLocalLogin = FeatureDisabled
+
+	err = config.Initialize()
+	require.NoError(t, err, "should be able to initialize with auth disabled")
+
+	// Auth enabled + local login enabled → should be fine
+	config = NewConfiguration()
+	config.FeatureAuthentication = FeatureEnabled
+	config.FeatureLocalLogin = FeatureEnabled
+
+	err = config.Initialize()
+	require.NoError(t, err, "should be able to initialize with local login")
+}
+
+func TestInitializeConfigDefaultAdminValid(t *testing.T) {
+	config := NewConfiguration()
+	config.FeatureAuthentication = FeatureEnabled
+	config.DefaultAdminLogin = "admin"
+	config.DefaultAdminPassword = "s3cr3tpass"
+
+	err := config.Initialize()
+	require.NoError(t, err, "valid default admin config should initialize successfully")
+}
+
+func TestInitializeConfigDefaultAdminNoAuth(t *testing.T) {
+	// DefaultAdminLogin set but FeatureAuthentication is disabled → should fail
+	config := NewConfiguration()
+	config.FeatureAuthentication = FeatureDisabled
+	config.DefaultAdminLogin = "admin"
+
+	err := config.Initialize()
+	RequireError(t, err, "DefaultAdminLogin is set but FeatureAuthentication is disabled")
+}
+
+func TestInitializeConfigDefaultAdminLocalLoginDisabled(t *testing.T) {
+	// DefaultAdminLogin set but FeatureLocalLogin is disabled → should fail
+	config := NewConfiguration()
+	config.FeatureAuthentication = FeatureEnabled
+	config.FeatureLocalLogin = FeatureDisabled
+	config.GoogleAPIClientID = "id"
+	config.GoogleAPISecret = "secret"
+	config.DefaultAdminLogin = "admin"
+
+	err := config.Initialize()
+	RequireError(t, err, "DefaultAdminLogin is set but FeatureLocalLogin is disabled")
+}
+
+func TestInitializeConfigDefaultAdminLoginTooShort(t *testing.T) {
+	config := NewConfiguration()
+	config.FeatureAuthentication = FeatureEnabled
+	config.DefaultAdminLogin = "adm" // 3 chars, min is 4
+
+	err := config.Initialize()
+	RequireError(t, err, "DefaultAdminLogin is too short")
+}
+
+func TestInitializeConfigDefaultAdminPasswordTooShort(t *testing.T) {
+	config := NewConfiguration()
+	config.FeatureAuthentication = FeatureEnabled
+	config.DefaultAdminLogin = "admin"
+	config.DefaultAdminPassword = "short" // 5 chars, min is 8
+
+	err := config.Initialize()
+	RequireError(t, err, "DefaultAdminPassword is too short")
+}
+
+func TestInitializeConfigDefaultAdminPasswordEmpty(t *testing.T) {
+	// Empty password is allowed (will be auto-generated at runtime)
+	config := NewConfiguration()
+	config.FeatureAuthentication = FeatureEnabled
+	config.DefaultAdminLogin = "admin"
+	// DefaultAdminPassword intentionally left empty
+
+	err := config.Initialize()
+	require.NoError(t, err, "empty password should be allowed (auto-generated at startup)")
+}
+
+func TestInitializeConfigPlikDomain(t *testing.T) {
+	config := NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+
+	err := config.Initialize()
+	require.NoError(t, err, "unable to initialize config")
+	require.NotNil(t, config.GetPlikDomain())
+	require.Equal(t, "plik.root.gg", config.GetPlikDomain().Host)
+}
+
+func TestInitializeConfigInvalidPlikDomain(t *testing.T) {
+	config := NewConfiguration()
+	config.PlikDomain = ":/invalid"
+
+	err := config.Initialize()
+	require.Error(t, err, "able to initialize invalid config")
+}
+
 func TestInitializeConfigDownloadDomain(t *testing.T) {
 	config := NewConfiguration()
 	config.DownloadDomain = "https://dl.plik.root.gg"
@@ -91,6 +209,25 @@ func TestInitializeConfigDownloadDomain(t *testing.T) {
 	err := config.Initialize()
 	require.NoError(t, err, "unable to initialize config")
 	require.Equal(t, config.DownloadDomain, config.GetDownloadDomain().String(), "invalid download domain")
+}
+
+func TestInitializeConfigPlikDomainEqualsDownloadDomain(t *testing.T) {
+	config := NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+	config.DownloadDomain = "https://plik.root.gg"
+
+	err := config.Initialize()
+	RequireError(t, err, "PlikDomain and DownloadDomain must be different domains")
+}
+
+func TestInitializeConfigPlikDomainEqualsDownloadDomainAlias(t *testing.T) {
+	config := NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+	config.DownloadDomain = "https://dl.plik.root.gg"
+	config.DownloadDomainAlias = []string{"https://plik.root.gg"}
+
+	err := config.Initialize()
+	RequireError(t, err, "PlikDomain and DownloadDomain must be different domains")
 }
 
 func TestInitializeConfigInvalidDownloadDomain(t *testing.T) {
@@ -205,10 +342,22 @@ func TestGetServerUrl(t *testing.T) {
 	require.Equal(t, "https://1.1.1.1:8080/root", config.GetServerURL().String(), "invalid server url")
 }
 
+func TestGetServerUrlWithPlikDomain(t *testing.T) {
+	config := NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.Equal(t, "https://plik.root.gg", config.GetServerURL().String())
+
+	config.Path = "/sub"
+	require.Equal(t, "https://plik.root.gg/sub", config.GetServerURL().String())
+}
+
 func TestString(t *testing.T) {
 	config := NewConfiguration()
 	require.NotEmpty(t, config.String())
 
+	config.PlikDomain = "https://plik.root.gg"
 	config.DownloadDomain = "download.domain"
 	config.DefaultTTL = -1
 	config.MaxTTL = -1
@@ -252,7 +401,7 @@ func TestConfiguration_EnvironmentOverride(t *testing.T) {
 	require.Equal(t, "1.2.3.4", config.ListenAddress)
 	require.Equal(t, int64(42), config.MaxFileSize)
 	require.EqualValues(t, []string{"127.0.0.1"}, config.UploadWhitelist)
-	require.EqualValues(t, map[string]interface{}{"path": "files"}, config.MetadataBackendConfig)
+	require.EqualValues(t, map[string]any{"path": "files"}, config.MetadataBackendConfig)
 }
 
 func TestConfiguration_NewLogger(t *testing.T) {
@@ -338,6 +487,37 @@ func TestConfiguration_GetSessionTimeout(t *testing.T) {
 	RequireError(t, err, "unable to parse SessionTimeout")
 }
 
+func TestConfiguration_GetStreamTimeout(t *testing.T) {
+	config := NewConfiguration()
+	require.Equal(t, 0, config.GetStreamTimeout())
+
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.Equal(t, 5*60, config.GetStreamTimeout()) // default "5m"
+
+	config = NewConfiguration()
+	config.StreamTimeoutStr = "10m"
+	err = config.Initialize()
+	require.NoError(t, err)
+	require.Equal(t, 10*60, config.GetStreamTimeout())
+
+	config = NewConfiguration()
+	config.StreamTimeoutStr = "0"
+	err = config.Initialize()
+	require.NoError(t, err)
+	require.Equal(t, 0, config.GetStreamTimeout()) // disabled
+
+	config = NewConfiguration()
+	config.StreamTimeoutStr = "azerty"
+	err = config.Initialize()
+	RequireError(t, err, "unable to parse StreamTimeout")
+
+	config = NewConfiguration()
+	config.StreamTimeoutStr = "-1"
+	err = config.Initialize()
+	RequireError(t, err, "invalid negative value for StreamTimeout")
+}
+
 func TestConfiguration_GetPath(t *testing.T) {
 	config := NewConfiguration()
 	require.Equal(t, "/", config.GetPath())
@@ -374,4 +554,259 @@ func TestConfiguration_IsValidDownloadDomain(t *testing.T) {
 	require.True(t, config.IsValidDownloadDomain("plik.root.gg"))
 	require.True(t, config.IsValidDownloadDomain("dl.root.gg"))
 	require.False(t, config.IsValidDownloadDomain("invalid.domain"))
+}
+
+func TestConfiguration_GetCORSOrigin(t *testing.T) {
+	// No domains → no CORS
+	config := NewConfiguration()
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.Equal(t, "", config.GetCORSOrigin())
+
+	// PlikDomain only → no CORS
+	config = NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+	err = config.Initialize()
+	require.NoError(t, err)
+	require.Equal(t, "", config.GetCORSOrigin())
+
+	// Both → CORS returns PlikDomain
+	config = NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+	config.DownloadDomain = "https://dl.plik.root.gg"
+	err = config.Initialize()
+	require.NoError(t, err)
+	require.Equal(t, "https://plik.root.gg", config.GetCORSOrigin())
+}
+
+func TestGetTlsVersionDefault(t *testing.T) {
+	config := NewConfiguration()
+	require.Equal(t, uint16(tls.VersionTLS12), config.GetTlsVersion(), "default TLS version should be TLS 1.2")
+}
+
+func TestGetTlsVersionAllValues(t *testing.T) {
+	config := NewConfiguration()
+
+	config.TlsVersion = "tlsv10"
+	require.Equal(t, uint16(tls.VersionTLS10), config.GetTlsVersion())
+
+	config.TlsVersion = "tlsv11"
+	require.Equal(t, uint16(tls.VersionTLS11), config.GetTlsVersion())
+
+	config.TlsVersion = "tlsv12"
+	require.Equal(t, uint16(tls.VersionTLS12), config.GetTlsVersion())
+
+	config.TlsVersion = "tlsv13"
+	require.Equal(t, uint16(tls.VersionTLS13), config.GetTlsVersion())
+
+	// Unknown value should default to TLS 1.2
+	config.TlsVersion = "invalid"
+	require.Equal(t, uint16(tls.VersionTLS12), config.GetTlsVersion())
+}
+
+// --- AssumeHTTPS resolution tests ---
+
+func TestAssumeHTTPSDefault(t *testing.T) {
+	// Off by default — neither EnhancedWebSecurity, SslEnabled nor https PlikDomain
+	config := NewConfiguration()
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.False(t, config.AssumeHTTPS, "AssumeHTTPS should be false by default")
+}
+
+func TestAssumeHTTPSExplicit(t *testing.T) {
+	// Explicit opt-in without any other flag
+	config := NewConfiguration()
+	config.AssumeHTTPS = true
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.True(t, config.AssumeHTTPS, "explicit AssumeHTTPS=true should be preserved")
+}
+
+func TestAssumeHTTPSFromSslEnabled(t *testing.T) {
+	// plikd manages TLS directly → auto-enable
+	config := NewConfiguration()
+	config.SslEnabled = true
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.True(t, config.AssumeHTTPS, "SslEnabled should auto-enable AssumeHTTPS")
+}
+
+func TestAssumeHTTPSFromHttpsPlikDomain(t *testing.T) {
+	// PlikDomain declares HTTPS → admin signals reverse proxy handles TLS → auto-enable
+	config := NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.True(t, config.AssumeHTTPS, "https PlikDomain should auto-enable AssumeHTTPS")
+}
+
+func TestAssumeHTTPSNotFromHttpPlikDomain(t *testing.T) {
+	// Plain-HTTP PlikDomain should NOT enable AssumeHTTPS
+	config := NewConfiguration()
+	config.PlikDomain = "http://plik.root.gg"
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.False(t, config.AssumeHTTPS, "http PlikDomain should NOT enable AssumeHTTPS")
+}
+
+func TestAssumeHTTPSFromlegacyEnhancedWebSecurity(t *testing.T) {
+	// Deprecated EnhancedWebSecurity=true must still enable AssumeHTTPS for backward compat
+	config := NewConfiguration()
+	config.EnhancedWebSecurity = true
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.True(t, config.AssumeHTTPS, "EnhancedWebSecurity=true should enable AssumeHTTPS (backward compat)")
+}
+
+// ── Domain Path Stripping ──────────────────────────────────────────────────
+
+func TestInitialize_PlikDomainWithPath_StripsPath(t *testing.T) {
+	config := NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg/badpath"
+	err := config.Initialize()
+	require.NoError(t, err)
+	// Path component should be removed
+	require.Equal(t, "https://plik.root.gg", config.PlikDomain)
+	require.Empty(t, config.GetPlikDomain().Path)
+}
+
+func TestInitialize_DownloadDomainWithPath_StripsPath(t *testing.T) {
+	config := NewConfiguration()
+	config.DownloadDomain = "https://dl.plik.root.gg/badpath"
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.Equal(t, "https://dl.plik.root.gg", config.DownloadDomain)
+	require.Empty(t, config.GetDownloadDomain().Path)
+}
+
+func TestInitialize_DownloadDomainAliasWithPath_StripsPath(t *testing.T) {
+	config := NewConfiguration()
+	config.DownloadDomain = "https://dl.plik.root.gg"
+	config.DownloadDomainAlias = []string{"https://dl2.plik.root.gg/also/bad"}
+	err := config.Initialize()
+	require.NoError(t, err)
+	aliases := config.GetDownloadDomainAlias()
+	require.Len(t, aliases, 1)
+	require.Empty(t, aliases[0].Path)
+}
+
+// ── DownloadURL Computed Field ─────────────────────────────────────────────
+
+func TestInitialize_DownloadURL_NoDownloadDomain(t *testing.T) {
+	config := NewConfiguration()
+	err := config.Initialize()
+	require.NoError(t, err)
+	// No domain configured — field is omitted so clients fall back to their connection URL
+	require.Empty(t, config.DownloadURL)
+}
+
+func TestInitialize_DownloadURL_WithDownloadDomain(t *testing.T) {
+	config := NewConfiguration()
+	config.DownloadDomain = "https://dl.plik.root.gg"
+	err := config.Initialize()
+	require.NoError(t, err)
+	require.Equal(t, "https://dl.plik.root.gg", config.DownloadURL)
+}
+
+func TestInitialize_DownloadURL_WithDownloadDomainAndPath(t *testing.T) {
+	config := NewConfiguration()
+	config.DownloadDomain = "https://dl.plik.root.gg"
+	config.Path = "/sub"
+	err := config.Initialize()
+	require.NoError(t, err)
+	// DownloadURL must include Path; raw DownloadDomain must not
+	require.Equal(t, "https://dl.plik.root.gg/sub", config.DownloadURL)
+	require.Equal(t, "https://dl.plik.root.gg", config.DownloadDomain)
+}
+
+// ── GetDownloadURL ─────────────────────────────────────────────────────────
+
+func TestGetDownloadURL_NoDownloadDomain_FallsBackToServerURL(t *testing.T) {
+	config := NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+	err := config.Initialize()
+	require.NoError(t, err)
+	u := config.GetDownloadURL()
+	require.Equal(t, "https://plik.root.gg", u.String())
+}
+
+func TestGetDownloadURL_WithDownloadDomain(t *testing.T) {
+	config := NewConfiguration()
+	config.DownloadDomain = "https://dl.plik.root.gg"
+	err := config.Initialize()
+	require.NoError(t, err)
+	u := config.GetDownloadURL()
+	require.Equal(t, "https://dl.plik.root.gg", u.String())
+}
+
+func TestGetDownloadURL_WithDownloadDomainAndPath(t *testing.T) {
+	config := NewConfiguration()
+	config.DownloadDomain = "https://dl.plik.root.gg"
+	config.Path = "/sub"
+	err := config.Initialize()
+	require.NoError(t, err)
+	u := config.GetDownloadURL()
+	require.Equal(t, "https://dl.plik.root.gg/sub", u.String())
+}
+
+// ── GetFileURL ─────────────────────────────────────────────────────────────
+
+func TestGetFileURL_NoDownloadDomain(t *testing.T) {
+	config := NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+	err := config.Initialize()
+	require.NoError(t, err)
+	got := config.GetFileURL("upload1", "file1", "test.txt", false)
+	require.Equal(t, "https://plik.root.gg/file/upload1/file1/test.txt", got)
+}
+
+func TestGetFileURL_WithDownloadDomainAndPath(t *testing.T) {
+	config := NewConfiguration()
+	config.DownloadDomain = "https://dl.plik.root.gg"
+	config.Path = "/sub"
+	err := config.Initialize()
+	require.NoError(t, err)
+	got := config.GetFileURL("upload1", "file1", "test.txt", false)
+	require.Equal(t, "https://dl.plik.root.gg/sub/file/upload1/file1/test.txt", got)
+}
+
+func TestGetFileURL_StreamMode(t *testing.T) {
+	config := NewConfiguration()
+	config.DownloadDomain = "https://dl.plik.root.gg"
+	config.Path = "/sub"
+	err := config.Initialize()
+	require.NoError(t, err)
+	got := config.GetFileURL("upload1", "file1", "test.txt", true)
+	require.Equal(t, "https://dl.plik.root.gg/sub/stream/upload1/file1/test.txt", got)
+}
+
+func TestGetFileURL_SpecialCharsInName(t *testing.T) {
+	config := NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+	err := config.Initialize()
+	require.NoError(t, err)
+	got := config.GetFileURL("upload1", "file1", "my file (1).txt", false)
+	require.Equal(t, "https://plik.root.gg/file/upload1/file1/my%20file%20%281%29.txt", got)
+}
+
+// ── GetArchiveURL ──────────────────────────────────────────────────────────
+
+func TestGetArchiveURL_NoDownloadDomain(t *testing.T) {
+	config := NewConfiguration()
+	config.PlikDomain = "https://plik.root.gg"
+	err := config.Initialize()
+	require.NoError(t, err)
+	got := config.GetArchiveURL("upload1", "archive.zip")
+	require.Equal(t, "https://plik.root.gg/archive/upload1/archive.zip", got)
+}
+
+func TestGetArchiveURL_WithDownloadDomainAndPath(t *testing.T) {
+	config := NewConfiguration()
+	config.DownloadDomain = "https://dl.plik.root.gg"
+	config.Path = "/sub"
+	err := config.Initialize()
+	require.NoError(t, err)
+	got := config.GetArchiveURL("upload1", "archive.zip")
+	require.Equal(t, "https://dl.plik.root.gg/sub/archive/upload1/archive.zip", got)
 }

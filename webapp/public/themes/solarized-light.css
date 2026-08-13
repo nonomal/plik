@@ -1,0 +1,124 @@
+/*
+ * Plik — Solarized Light Theme
+ * Based on Ethan Schoonover's Solarized palette
+ * https://ethanschoonover.com/solarized/
+ */
+[data-theme="solarized-light"] {
+    color-scheme: light;
+
+    /* ── Surface Scale (inverted: dark text → light background) ── */
+    --color-surface-50: #002b36;
+    /* base03 — emphasized headings */
+    --color-surface-100: #073642;
+    /* base02 — primary text */
+    --color-surface-200: #586e75;
+    /* base01 — secondary text */
+    --color-surface-300: #657b83;
+    /* base00 — tertiary text */
+    --color-surface-400: #839496;
+    /* base0  — muted text */
+    --color-surface-500: #93a1a1;
+    /* base1  — subtle labels */
+    --color-surface-600: #93a1a1;
+    /* base1  — hint text */
+    --color-surface-700: #e8dcc8;
+    /* warm tan — dividers */
+    --color-surface-800: #fdf6e3;
+    /* warm cream — elevated panels */
+    --color-surface-900: #fdf4db;
+    /* parchment yellow — page background */
+    --color-surface-950: #fdf4db;
+    /* parchment yellow — deepest background */
+
+    /* ── Accent ── */
+    --color-accent-400: #2aa198;
+    /* cyan    — links, active nav, logo */
+    --color-accent-500: #2aa198;
+    /* cyan    — primary buttons */
+    --color-accent-600: #1f7a73;
+    /* darker  — pressed accent */
+
+    /* ── Danger / Success (palette-matched, softer than defaults) ── */
+    --color-danger-500: #cb4b16;
+    /* orange */
+    --color-danger-600: #b5421a;
+    --color-success-500: #859900;
+    /* yellow-green */
+    --color-success-600: #6d7e00;
+
+    /* ── Semantic ── */
+    --color-on-accent: #fdf6e3;
+}
+
+/* ── Component Overrides (light theme needs opaque surfaces) ── */
+[data-theme="solarized-light"] .toggle-switch {
+    background-color: #bcc7c7;
+}
+
+[data-theme="solarized-light"] .toggle-switch[data-active="true"] {
+    background-color: #2aa198;
+}
+
+[data-theme="solarized-light"] .glass-card {
+    background-color: #fdf6e3;
+    border-color: #d9cfb3;
+    box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.08);
+}
+
+[data-theme="solarized-light"] .btn-primary {
+    background-color: color-mix(in srgb, #2aa198 12%, transparent);
+    color: #2aa198;
+    box-shadow: none;
+}
+
+[data-theme="solarized-light"] .btn-primary:hover {
+    background-color: color-mix(in srgb, #2aa198 20%, transparent);
+}
+
+[data-theme="solarized-light"] .btn-success {
+    background-color: color-mix(in srgb, #859900 12%, transparent);
+    color: #859900;
+    box-shadow: none;
+}
+
+[data-theme="solarized-light"] .btn-success:hover {
+    background-color: color-mix(in srgb, #859900 20%, transparent);
+}
+
+[data-theme="solarized-light"] .btn-danger {
+    background-color: color-mix(in srgb, #cb4b16 12%, transparent);
+    color: #cb4b16;
+    box-shadow: none;
+}
+
+[data-theme="solarized-light"] .btn-danger:hover {
+    background-color: color-mix(in srgb, #cb4b16 20%, transparent);
+}
+
+[data-theme="solarized-light"] .btn-ghost {
+    color: #657b83;
+}
+
+[data-theme="solarized-light"] .btn-ghost:hover {
+    color: #2aa198;
+    background-color: color-mix(in srgb, #2aa198 8%, transparent);
+}
+
+[data-theme="solarized-light"] .sidebar-section {
+    background-color: #fdf6e3;
+    border-color: #d9cfb3;
+}
+
+[data-theme="solarized-light"] .file-row {
+    background-color: #fdf6e3;
+    border-color: #d9cfb3;
+}
+
+[data-theme="solarized-light"] .file-row:hover {
+    background-color: #e8dcc0;
+}
+
+[data-theme="solarized-light"] .input-field {
+    background-color: #fdf6e3;
+    border-color: #d9cfb3;
+}

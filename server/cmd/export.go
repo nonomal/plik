@@ -9,7 +9,7 @@ import (
 
 // exportCmd to export metadata
 var exportCmd = &cobra.Command{
-	Use:   "export",
+	Use:   "export [output-file]",
 	Short: "Export metadata",
 	Run:   exportMetadata,
 }
@@ -26,7 +26,7 @@ func exportMetadata(cmd *cobra.Command, args []string) {
 
 	initializeMetadataBackend()
 
-	fmt.Printf("Exporting metadata from %s %s to %s\n", metadataBackend.Config.Driver, metadataBackend.Config.ConnectionString, args[0])
+	fmt.Printf("Exporting metadata from %s to %s\n", metadataBackend.Config.Driver, args[0])
 
 	err := metadataBackend.Export(args[0])
 	if err != nil {

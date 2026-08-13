@@ -25,7 +25,6 @@ func createTestFile(ctx *context.Context, file *common.File, reader io.Reader) (
 
 func TestGetFile(t *testing.T) {
 	config := common.NewConfiguration()
-	config.EnhancedWebSecurity = true
 	ctx := newTestingContext(config)
 
 	data := "data"
@@ -47,7 +46,6 @@ func TestGetFile(t *testing.T) {
 
 	req, err := http.NewRequest("GET", "/file/"+upload.ID+"/"+file.ID+"/"+file.Name+"?dl=true", bytes.NewBuffer([]byte{}))
 	require.NoError(t, err, "unable to create new request")
-	req.URL.Query().Set("dl", "true")
 
 	rr := ctx.NewRecorder(req)
 	GetFile(ctx, rr, req)
@@ -61,10 +59,9 @@ func TestGetFile(t *testing.T) {
 
 	require.Equal(t, data, string(respBody), "invalid file content")
 	require.NotEmpty(t, rr.Header().Get("X-Content-Type-Options"))
-	require.NotEmpty(t, rr.Header().Get("X-XSS-Protection"))
 	require.NotEmpty(t, rr.Header().Get("X-Frame-Options"))
 	require.NotEmpty(t, rr.Header().Get("Content-Security-Policy"))
-	require.Equal(t, rr.Header().Get("Content-Disposition"), fmt.Sprintf(`attachement; filename="%s"`, file.Name))
+	require.Equal(t, rr.Header().Get("Content-Disposition"), fmt.Sprintf(`attachment; filename="%s"`, file.Name))
 }
 
 func TestGetOneShotFile(t *testing.T) {
@@ -258,7 +255,85 @@ func TestGetHtmlFile(t *testing.T) {
 	GetFile(ctx, rr, req)
 	context.TestOK(t, rr)
 
-	require.Equal(t, "text/plain", rr.Header().Get("Content-Type"), "invalid content type")
+	require.Equal(t, "application/octet-stream", rr.Header().Get("Content-Type"), "HTML files should be neutralized to octet-stream")
+}
+
+func TestGetSvgFile(t *testing.T) {
+	config := common.NewConfiguration()
+	ctx := newTestingContext(config)
+
+	upload := &common.Upload{}
+	upload.InitializeForTests()
+
+	file := upload.NewFile()
+	file.Type = "image/svg+xml"
+	file.Status = "uploaded"
+	err := createTestFile(ctx, file, bytes.NewBuffer([]byte("data")))
+	require.NoError(t, err, "unable to create test file")
+
+	ctx.SetUpload(upload)
+	ctx.SetFile(file)
+
+	req, err := http.NewRequest("GET", "/file/", bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	rr := ctx.NewRecorder(req)
+	GetFile(ctx, rr, req)
+	context.TestOK(t, rr)
+
+	require.Equal(t, "application/octet-stream", rr.Header().Get("Content-Type"), "SVG files should be neutralized to octet-stream")
+}
+
+func TestGetXmlFile(t *testing.T) {
+	config := common.NewConfiguration()
+	ctx := newTestingContext(config)
+
+	upload := &common.Upload{}
+	upload.InitializeForTests()
+
+	file := upload.NewFile()
+	file.Type = "text/xml"
+	file.Status = "uploaded"
+	err := createTestFile(ctx, file, bytes.NewBuffer([]byte("data")))
+	require.NoError(t, err, "unable to create test file")
+
+	ctx.SetUpload(upload)
+	ctx.SetFile(file)
+
+	req, err := http.NewRequest("GET", "/file/", bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	rr := ctx.NewRecorder(req)
+	GetFile(ctx, rr, req)
+	context.TestOK(t, rr)
+
+	require.Equal(t, "application/octet-stream", rr.Header().Get("Content-Type"), "XML files should be neutralized to octet-stream")
+}
+
+func TestGetJavascriptFile(t *testing.T) {
+	config := common.NewConfiguration()
+	ctx := newTestingContext(config)
+
+	upload := &common.Upload{}
+	upload.InitializeForTests()
+
+	file := upload.NewFile()
+	file.Type = "application/javascript"
+	file.Status = "uploaded"
+	err := createTestFile(ctx, file, bytes.NewBuffer([]byte("data")))
+	require.NoError(t, err, "unable to create test file")
+
+	ctx.SetUpload(upload)
+	ctx.SetFile(file)
+
+	req, err := http.NewRequest("GET", "/file/", bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	rr := ctx.NewRecorder(req)
+	GetFile(ctx, rr, req)
+	context.TestOK(t, rr)
+
+	require.Equal(t, "application/octet-stream", rr.Header().Get("Content-Type"), "JS files should be neutralized to octet-stream")
 }
 
 func TestGetFileNoType(t *testing.T) {
@@ -359,4 +434,125 @@ func TestGetFileInvalidStatusStreaming(t *testing.T) {
 	rr := ctx.NewRecorder(req)
 	GetFile(ctx, rr, req)
 	context.TestNotFound(t, rr, "is not available")
+}
+
+func TestGetFileE2EERedirectWebapp(t *testing.T) {
+	config := common.NewConfiguration()
+	ctx := newTestingContext(config)
+
+	upload := &common.Upload{E2EE: "age"}
+	upload.InitializeForTests()
+	file := upload.NewFile()
+	file.Name = "file"
+	file.Status = common.FileUploaded
+	createTestUpload(t, ctx, upload)
+
+	err := createTestFile(ctx, file, bytes.NewBuffer([]byte("encrypted")))
+	require.NoError(t, err, "unable to create test file")
+
+	ctx.SetUpload(upload)
+	ctx.SetFile(file)
+
+	req, err := http.NewRequest("GET", "/file/"+upload.ID+"/"+file.ID+"/"+file.Name, bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+	req.Header.Set("X-ClientApp", "web_client")
+
+	rr := ctx.NewRecorder(req)
+	GetFile(ctx, rr, req)
+
+	require.Equal(t, http.StatusTemporaryRedirect, rr.Code, "expected redirect for webapp E2EE download")
+	require.Contains(t, rr.Header().Get("Location"), "/#/?id="+upload.ID, "redirect should point to download page")
+}
+
+func TestGetFileE2EERedirectWebappWithPath(t *testing.T) {
+	config := common.NewConfiguration()
+	config.Path = "/sub"
+	ctx := newTestingContext(config)
+
+	upload := &common.Upload{E2EE: "age"}
+	upload.InitializeForTests()
+	file := upload.NewFile()
+	file.Name = "file"
+	file.Status = common.FileUploaded
+	createTestUpload(t, ctx, upload)
+
+	err := createTestFile(ctx, file, bytes.NewBuffer([]byte("encrypted")))
+	require.NoError(t, err, "unable to create test file")
+
+	ctx.SetUpload(upload)
+	ctx.SetFile(file)
+
+	req, err := http.NewRequest("GET", "/file/"+upload.ID+"/"+file.ID+"/"+file.Name, bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+	req.Header.Set("X-ClientApp", "web_client")
+
+	rr := ctx.NewRecorder(req)
+	GetFile(ctx, rr, req)
+
+	require.Equal(t, http.StatusTemporaryRedirect, rr.Code, "expected redirect for webapp E2EE download")
+	require.Equal(t, "/sub/#/?id="+upload.ID, rr.Header().Get("Location"), "E2EE redirect should include the configured Path prefix")
+}
+
+func TestGetFileE2EEContentType(t *testing.T) {
+	config := common.NewConfiguration()
+	ctx := newTestingContext(config)
+
+	upload := &common.Upload{E2EE: "age"}
+	upload.InitializeForTests()
+	file := upload.NewFile()
+	file.Name = "document.pdf"
+	file.Type = "application/pdf"
+	file.Status = common.FileUploaded
+	createTestUpload(t, ctx, upload)
+
+	err := createTestFile(ctx, file, bytes.NewBuffer([]byte("encrypted")))
+	require.NoError(t, err, "unable to create test file")
+
+	ctx.SetUpload(upload)
+	ctx.SetFile(file)
+
+	// Non-webapp request (e.g. curl) — should get raw bytes with octet-stream
+	req, err := http.NewRequest("GET", "/file/"+upload.ID+"/"+file.ID+"/"+file.Name, bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	rr := ctx.NewRecorder(req)
+	GetFile(ctx, rr, req)
+	context.TestOK(t, rr)
+
+	require.Equal(t, "application/octet-stream", rr.Header().Get("Content-Type"), "E2EE files should be served as octet-stream")
+
+	respBody, err := io.ReadAll(rr.Body)
+	require.NoError(t, err, "unable to read response body")
+	require.Equal(t, "encrypted", string(respBody), "should receive raw encrypted bytes")
+}
+
+func TestGetFileE2EENonWebappPassthrough(t *testing.T) {
+	config := common.NewConfiguration()
+	ctx := newTestingContext(config)
+
+	upload := &common.Upload{E2EE: "age"}
+	upload.InitializeForTests()
+	file := upload.NewFile()
+	file.Name = "file"
+	file.Status = common.FileUploaded
+	createTestUpload(t, ctx, upload)
+
+	data := "encrypted-content"
+	err := createTestFile(ctx, file, bytes.NewBuffer([]byte(data)))
+	require.NoError(t, err, "unable to create test file")
+
+	ctx.SetUpload(upload)
+	ctx.SetFile(file)
+
+	// Request without X-ClientApp header (e.g. curl) — should NOT redirect
+	req, err := http.NewRequest("GET", "/file/"+upload.ID+"/"+file.ID+"/"+file.Name, bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	rr := ctx.NewRecorder(req)
+	GetFile(ctx, rr, req)
+	context.TestOK(t, rr)
+
+	respBody, err := io.ReadAll(rr.Body)
+	require.NoError(t, err, "unable to read response body")
+	require.Equal(t, data, string(respBody), "CLI should receive raw encrypted bytes")
 }

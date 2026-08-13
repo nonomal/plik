@@ -7,19 +7,28 @@
 //	  return err
 //	}
 //
-// Or from a DSN string.
+// Or from a keyword/value string.
 //
 //	db, err := sql.Open("pgx", "user=postgres password=secret host=localhost port=5432 database=pgx_test sslmode=disable")
 //	if err != nil {
 //	  return err
 //	}
 //
+// Or from a *pgxpool.Pool.
+//
+//	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+//	if err != nil {
+//	  return err
+//	}
+//
+//	db := stdlib.OpenDBFromPool(pool)
+//
 // Or a pgx.ConnConfig can be used to set configuration not accessible via connection string. In this case the
 // pgx.ConnConfig must first be registered with the driver. This registration returns a connection string which is used
 // with sql.Open.
 //
 //	connConfig, _ := pgx.ParseConfig(os.Getenv("DATABASE_URL"))
-//	connConfig.Logger = myLogger
+//	connConfig.Tracer = &tracelog.TraceLog{Logger: myLogger, LogLevel: tracelog.LogLevelInfo}
 //	connStr := stdlib.RegisterConnConfig(connConfig)
 //	db, _ := sql.Open("pgx", connStr)
 //
@@ -64,8 +73,9 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,6 +84,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Only intrinsic types should be binary format with database/sql.
@@ -88,7 +99,7 @@ func init() {
 
 	// if pgx driver was already registered by different pgx major version then we
 	// skip registration under the default name.
-	if !contains(sql.Drivers(), "pgx") {
+	if !slices.Contains(sql.Drivers(), "pgx") {
 		sql.Register("pgx", pgxDriver)
 	}
 	sql.Register("pgx/v5", pgxDriver)
@@ -110,29 +121,34 @@ func init() {
 	}
 }
 
-// TODO replace by slices.Contains when experimental package will be merged to stdlib
-// https://pkg.go.dev/golang.org/x/exp/slices#Contains
-func contains(list []string, y string) bool {
-	for _, x := range list {
-		if x == y {
-			return true
-		}
-	}
-	return false
-}
-
 // OptionOpenDB options for configuring the driver when opening a new db pool.
 type OptionOpenDB func(*connector)
 
+// ShouldPingParams are passed to OptionShouldPing to decide whether to ping before reusing a connection.
+type ShouldPingParams struct {
+	// Conn is the underlying pgx connection.
+	Conn *pgx.Conn
+	// IdleDuration is how long it has been since ResetSession last ran.
+	IdleDuration time.Duration
+}
+
+// OptionShouldPing controls whether stdlib should issue a liveness ping before reusing a connection.
+// If the function returns true, stdlib will ping.
+// If it returns false, stdlib will skip the ping.
+// If not provided, default is ping only when IdleDuration > 1s.
+func OptionShouldPing(f func(context.Context, ShouldPingParams) bool) OptionOpenDB {
+	return func(dc *connector) { dc.ShouldPing = f }
+}
+
 // OptionBeforeConnect provides a callback for before connect. It is passed a shallow copy of the ConnConfig that will
-// be used to connect, so only its immediate members should be modified.
+// be used to connect, so only its immediate members should be modified. Used only if db is opened with *pgx.ConnConfig.
 func OptionBeforeConnect(bc func(context.Context, *pgx.ConnConfig) error) OptionOpenDB {
 	return func(dc *connector) {
 		dc.BeforeConnect = bc
 	}
 }
 
-// OptionAfterConnect provides a callback for after connect.
+// OptionAfterConnect provides a callback for after connect. Used only if db is opened with *pgx.ConnConfig.
 func OptionAfterConnect(ac func(context.Context, *pgx.Conn) error) OptionOpenDB {
 	return func(dc *connector) {
 		dc.AfterConnect = ac
@@ -191,41 +207,101 @@ func GetConnector(config pgx.ConnConfig, opts ...OptionOpenDB) driver.Connector 
 	return c
 }
 
+// GetPoolConnector creates a new driver.Connector from the given *pgxpool.Pool. By using this be sure to set the
+// maximum idle connections of the *sql.DB created with this connector to zero since they must be managed from the
+// *pgxpool.Pool. This is required to avoid acquiring all the connections from the pgxpool and starving any direct
+// users of the pgxpool.
+func GetPoolConnector(pool *pgxpool.Pool, opts ...OptionOpenDB) driver.Connector {
+	c := connector{
+		pool:         pool,
+		ResetSession: func(context.Context, *pgx.Conn) error { return nil }, // noop reset session by default
+		driver:       pgxDriver,
+	}
+
+	for _, opt := range opts {
+		opt(&c)
+	}
+
+	return c
+}
+
 func OpenDB(config pgx.ConnConfig, opts ...OptionOpenDB) *sql.DB {
 	c := GetConnector(config, opts...)
 	return sql.OpenDB(c)
 }
 
+// OpenDBFromPool creates a new *sql.DB from the given *pgxpool.Pool. Note that this method automatically sets the
+// maximum number of idle connections in *sql.DB to zero, since they must be managed from the *pgxpool.Pool. This is
+// required to avoid acquiring all the connections from the pgxpool and starving any direct users of the pgxpool. Note
+// that closing the returned *sql.DB will not close the *pgxpool.Pool.
+func OpenDBFromPool(pool *pgxpool.Pool, opts ...OptionOpenDB) *sql.DB {
+	c := GetPoolConnector(pool, opts...)
+	db := sql.OpenDB(c)
+	db.SetMaxIdleConns(0)
+	return db
+}
+
 type connector struct {
 	pgx.ConnConfig
+	pool          *pgxpool.Pool
 	BeforeConnect func(context.Context, *pgx.ConnConfig) error // function to call before creation of every new connection
 	AfterConnect  func(context.Context, *pgx.Conn) error       // function to call after creation of every new connection
 	ResetSession  func(context.Context, *pgx.Conn) error       // function is called before a connection is reused
+	ShouldPing    func(context.Context, ShouldPingParams) bool // function to decide if stdlib should ping before reusing a connection
 	driver        *Driver
 }
 
 // Connect implement driver.Connector interface
 func (c connector) Connect(ctx context.Context) (driver.Conn, error) {
 	var (
-		err  error
-		conn *pgx.Conn
+		connConfig pgx.ConnConfig
+		conn       *pgx.Conn
+		close      func(context.Context) error
+		err        error
 	)
 
-	// Create a shallow copy of the config, so that BeforeConnect can safely modify it
-	connConfig := c.ConnConfig
-	if err = c.BeforeConnect(ctx, &connConfig); err != nil {
-		return nil, err
+	if c.pool == nil {
+		// Create a shallow copy of the config, so that BeforeConnect can safely modify it
+		connConfig = c.ConnConfig
+
+		if err = c.BeforeConnect(ctx, &connConfig); err != nil {
+			return nil, err
+		}
+
+		if conn, err = pgx.ConnectConfig(ctx, &connConfig); err != nil {
+			return nil, err
+		}
+
+		if err = c.AfterConnect(ctx, conn); err != nil {
+			return nil, err
+		}
+
+		close = conn.Close
+	} else {
+		var pconn *pgxpool.Conn
+
+		pconn, err = c.pool.Acquire(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		conn = pconn.Conn()
+
+		close = func(_ context.Context) error {
+			pconn.Release()
+			return nil
+		}
 	}
 
-	if conn, err = pgx.ConnectConfig(ctx, &connConfig); err != nil {
-		return nil, err
-	}
-
-	if err = c.AfterConnect(ctx, conn); err != nil {
-		return nil, err
-	}
-
-	return &Conn{conn: conn, driver: c.driver, connConfig: connConfig, resetSessionFunc: c.ResetSession}, nil
+	return &Conn{
+		conn:             conn,
+		close:            close,
+		driver:           c.driver,
+		connConfig:       connConfig,
+		resetSessionFunc: c.ResetSession,
+		shouldPing:       c.ShouldPing,
+		psRefCounts:      make(map[*pgconn.StatementDescription]int),
+	}, nil
 }
 
 // Driver implement driver.Connector interface
@@ -302,9 +378,11 @@ func (dc *driverConnector) Connect(ctx context.Context) (driver.Conn, error) {
 
 	c := &Conn{
 		conn:             conn,
+		close:            conn.Close,
 		driver:           dc.driver,
 		connConfig:       *connConfig,
 		resetSessionFunc: func(context.Context, *pgx.Conn) error { return nil },
+		psRefCounts:      make(map[*pgconn.StatementDescription]int),
 	}
 
 	return c, nil
@@ -326,11 +404,20 @@ func UnregisterConnConfig(connStr string) {
 
 type Conn struct {
 	conn                 *pgx.Conn
-	psCount              int64 // Counter used for creating unique prepared statement names
+	close                func(context.Context) error
 	driver               *Driver
 	connConfig           pgx.ConnConfig
-	resetSessionFunc     func(context.Context, *pgx.Conn) error // Function is called before a connection is reused
+	resetSessionFunc     func(context.Context, *pgx.Conn) error       // Function is called before a connection is reused
+	shouldPing           func(context.Context, ShouldPingParams) bool // Function to decide if stdlib should ping before reusing a connection
 	lastResetSessionTime time.Time
+
+	// psRefCounts contains reference counts for prepared statements. Prepare uses the underlying pgx logic to generate
+	// deterministic statement names from the statement text. If this query has already been prepared then the existing
+	// *pgconn.StatementDescription will be returned. However, this means that if Close is called on the returned Stmt
+	// then the underlying prepared statement will be closed even when the underlying prepared statement is still in use
+	// by another database/sql Stmt. To prevent this psRefCounts keeps track of how many database/sql statements are using
+	// the same underlying statement and only closes the underlying statement when the reference count reaches 0.
+	psRefCounts map[*pgconn.StatementDescription]int
 }
 
 // Conn returns the underlying *pgx.Conn
@@ -347,13 +434,11 @@ func (c *Conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 		return nil, driver.ErrBadConn
 	}
 
-	name := fmt.Sprintf("pgx_%d", c.psCount)
-	c.psCount++
-
-	sd, err := c.conn.Prepare(ctx, name, query)
+	sd, err := c.conn.Prepare(ctx, query, query)
 	if err != nil {
 		return nil, err
 	}
+	c.psRefCounts[sd]++
 
 	return &Stmt{sd: sd, conn: c}, nil
 }
@@ -361,7 +446,7 @@ func (c *Conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 func (c *Conn) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	return c.conn.Close(ctx)
+	return c.close(ctx)
 }
 
 func (c *Conn) Begin() (driver.Tx, error) {
@@ -405,7 +490,8 @@ func (c *Conn) ExecContext(ctx context.Context, query string, argsV []driver.Nam
 		return nil, driver.ErrBadConn
 	}
 
-	args := namedValueToInterface(argsV)
+	args := make([]any, len(argsV))
+	convertNamedArguments(args, argsV)
 
 	commandTag, err := c.conn.Exec(ctx, query, args...)
 	// if we got a network error before we had a chance to send the query, retry
@@ -422,8 +508,9 @@ func (c *Conn) QueryContext(ctx context.Context, query string, argsV []driver.Na
 		return nil, driver.ErrBadConn
 	}
 
-	args := []any{databaseSQLResultFormats}
-	args = append(args, namedValueToInterface(argsV)...)
+	args := make([]any, 1+len(argsV))
+	args[0] = databaseSQLResultFormats
+	convertNamedArguments(args[1:], argsV)
 
 	rows, err := c.conn.Query(ctx, query, args...)
 	if err != nil {
@@ -468,12 +555,30 @@ func (c *Conn) ResetSession(ctx context.Context) error {
 		return driver.ErrBadConn
 	}
 
+	// Discard connection if it has an open transaction. This can happen if the
+	// application did not properly commit or rollback a transaction.
+	if c.conn.PgConn().TxStatus() != 'I' {
+		return driver.ErrBadConn
+	}
+
 	now := time.Now()
-	if now.Sub(c.lastResetSessionTime) > time.Second {
-		if err := c.conn.PgConn().CheckConn(); err != nil {
+	idle := now.Sub(c.lastResetSessionTime)
+
+	doPing := idle > time.Second // default behavior: ping only if idle > 1s
+
+	if c.shouldPing != nil {
+		doPing = c.shouldPing(ctx, ShouldPingParams{
+			Conn:         c.conn,
+			IdleDuration: idle,
+		})
+	}
+
+	if doPing {
+		if err := c.conn.PgConn().Ping(ctx); err != nil {
 			return driver.ErrBadConn
 		}
 	}
+
 	c.lastResetSessionTime = now
 
 	return c.resetSessionFunc(ctx, c.conn)
@@ -487,7 +592,16 @@ type Stmt struct {
 func (s *Stmt) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	return s.conn.conn.Deallocate(ctx, s.sd.Name)
+
+	refCount := s.conn.psRefCounts[s.sd]
+	if refCount == 1 {
+		delete(s.conn.psRefCounts, s.sd)
+	} else {
+		s.conn.psRefCounts[s.sd]--
+		return nil
+	}
+
+	return s.conn.conn.Deallocate(ctx, s.sd.SQL)
 }
 
 func (s *Stmt) NumInput() int {
@@ -499,7 +613,7 @@ func (s *Stmt) Exec(argsV []driver.Value) (driver.Result, error) {
 }
 
 func (s *Stmt) ExecContext(ctx context.Context, argsV []driver.NamedValue) (driver.Result, error) {
-	return s.conn.ExecContext(ctx, s.sd.Name, argsV)
+	return s.conn.ExecContext(ctx, s.sd.SQL, argsV)
 }
 
 func (s *Stmt) Query(argsV []driver.Value) (driver.Rows, error) {
@@ -507,7 +621,7 @@ func (s *Stmt) Query(argsV []driver.Value) (driver.Rows, error) {
 }
 
 func (s *Stmt) QueryContext(ctx context.Context, argsV []driver.NamedValue) (driver.Rows, error) {
-	return s.conn.QueryContext(ctx, s.sd.Name, argsV)
+	return s.conn.QueryContext(ctx, s.sd.SQL, argsV)
 }
 
 type rowValueFunc func(src []byte) (driver.Value, error)
@@ -554,8 +668,10 @@ func (r *Rows) ColumnTypeLength(index int) (int64, bool) {
 	switch fd.DataTypeOID {
 	case pgtype.TextOID, pgtype.ByteaOID:
 		return math.MaxInt64, true
-	case pgtype.VarcharOID, pgtype.BPCharArrayOID:
+	case pgtype.VarcharOID, pgtype.BPCharOID:
 		return int64(fd.TypeModifier - varHeaderSize), true
+	case pgtype.VarbitOID:
+		return int64(fd.TypeModifier), true
 	default:
 		return 0, false
 	}
@@ -583,25 +699,25 @@ func (r *Rows) ColumnTypeScanType(index int) reflect.Type {
 
 	switch fd.DataTypeOID {
 	case pgtype.Float8OID:
-		return reflect.TypeOf(float64(0))
+		return reflect.TypeFor[float64]()
 	case pgtype.Float4OID:
-		return reflect.TypeOf(float32(0))
+		return reflect.TypeFor[float32]()
 	case pgtype.Int8OID:
-		return reflect.TypeOf(int64(0))
+		return reflect.TypeFor[int64]()
 	case pgtype.Int4OID:
-		return reflect.TypeOf(int32(0))
+		return reflect.TypeFor[int32]()
 	case pgtype.Int2OID:
-		return reflect.TypeOf(int16(0))
+		return reflect.TypeFor[int16]()
 	case pgtype.BoolOID:
-		return reflect.TypeOf(false)
+		return reflect.TypeFor[bool]()
 	case pgtype.NumericOID:
-		return reflect.TypeOf(float64(0))
+		return reflect.TypeFor[float64]()
 	case pgtype.DateOID, pgtype.TimestampOID, pgtype.TimestamptzOID:
-		return reflect.TypeOf(time.Time{})
+		return reflect.TypeFor[time.Time]()
 	case pgtype.ByteaOID:
-		return reflect.TypeOf([]byte(nil))
+		return reflect.TypeFor[[]byte]()
 	default:
-		return reflect.TypeOf("")
+		return reflect.TypeFor[string]()
 	}
 }
 
@@ -721,6 +837,16 @@ func (r *Rows) Next(dest []driver.Value) error {
 					}
 					return d.Value()
 				}
+			case pgtype.XMLOID:
+				var d []byte
+				scanPlan := m.PlanScan(dataTypeOID, format, &d)
+				r.valueFuncs[i] = func(src []byte) (driver.Value, error) {
+					err := scanPlan.Scan(src, &d)
+					if err != nil {
+						return nil, err
+					}
+					return d, nil
+				}
 			default:
 				var d string
 				scanPlan := m.PlanScan(dataTypeOID, format, &d)
@@ -753,7 +879,7 @@ func (r *Rows) Next(dest []driver.Value) error {
 			var err error
 			dest[i], err = r.valueFuncs[i](rv)
 			if err != nil {
-				return fmt.Errorf("convert field %d failed: %v", i, err)
+				return fmt.Errorf("convert field %d failed: %w", i, err)
 			}
 		} else {
 			dest[i] = nil
@@ -763,28 +889,14 @@ func (r *Rows) Next(dest []driver.Value) error {
 	return nil
 }
 
-func valueToInterface(argsV []driver.Value) []any {
-	args := make([]any, 0, len(argsV))
-	for _, v := range argsV {
-		if v != nil {
-			args = append(args, v.(any))
-		} else {
-			args = append(args, nil)
-		}
-	}
-	return args
-}
-
-func namedValueToInterface(argsV []driver.NamedValue) []any {
-	args := make([]any, 0, len(argsV))
-	for _, v := range argsV {
+func convertNamedArguments(args []any, argsV []driver.NamedValue) {
+	for i, v := range argsV {
 		if v.Value != nil {
-			args = append(args, v.Value.(any))
+			args[i] = v.Value.(any)
 		} else {
-			args = append(args, nil)
+			args[i] = nil
 		}
 	}
-	return args
 }
 
 type wrapTx struct {

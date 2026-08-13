@@ -49,7 +49,7 @@ func init() {
 	rootCmd.AddCommand(tokenCmd)
 
 	// Here you will define your flags and configuration settings.
-	tokenCmd.PersistentFlags().StringVar(&tokenParams.provider, "provider", common.ProviderLocal, "user provider [local|google|ovh]")
+	tokenCmd.PersistentFlags().StringVar(&tokenParams.provider, "provider", common.ProviderLocal, "user provider [local|google|github|ovh|oidc]")
 	tokenCmd.PersistentFlags().StringVar(&tokenParams.login, "login", "", "user login")
 
 	tokenCmd.AddCommand(createTokenCmd)
@@ -88,7 +88,7 @@ func createToken(cmd *cobra.Command, args []string) {
 	}
 
 	if user == nil {
-		fmt.Printf("User %s does not found\n", userID)
+		fmt.Println(userNotFoundError(tokenParams.provider, userID))
 		os.Exit(1)
 	}
 
@@ -133,7 +133,7 @@ func listTokens(cmd *cobra.Command, args []string) {
 
 	err := metadataBackend.ForEachToken(f)
 	if err != nil {
-		fmt.Printf("Unable to get users : %s\n", err)
+		fmt.Printf("Unable to list tokens : %s\n", err)
 		os.Exit(1)
 	}
 }
@@ -153,7 +153,7 @@ func deleteToken(cmd *cobra.Command, args []string) {
 
 	deleted, err := metadataBackend.DeleteToken(tokenParams.token)
 	if err != nil {
-		fmt.Printf("Unable to delete user : %s\n", err)
+		fmt.Printf("Unable to delete token : %s\n", err)
 		os.Exit(1)
 	}
 

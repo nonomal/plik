@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -24,10 +25,8 @@ func ValidateFeatureFlag(value string) (err error) {
 
 // ValidateCustomFeatureFlag validates a feature flag string value against a list of possible values
 func ValidateCustomFeatureFlag(value string, possibleValues []string) (err error) {
-	for _, possibleValue := range possibleValues {
-		if value == possibleValue {
-			return nil
-		}
+	if slices.Contains(possibleValues, value) {
+		return nil
 	}
 	return fmt.Errorf("Invalid feature flag value. Expecting : %s", strings.Join(possibleValues, "|"))
 }
@@ -45,6 +44,8 @@ func IsFeatureDefault(value string) bool {
 func (config *Configuration) initializeFeatureFlags() error {
 	initializations := []func() error{
 		config.initializeFeatureAuthentication,
+		config.initializeFeatureLocalLogin,
+		config.initializeFeatureDeleteAccount,
 		config.initializeFeatureOneShot,
 		config.initializeFeatureRemovable,
 		config.initializeFeatureStream,
@@ -54,7 +55,9 @@ func (config *Configuration) initializeFeatureFlags() error {
 		config.initializeFeatureExtendTTL,
 		config.initializeFeatureGithub,
 		config.initializeFeatureClients,
+		config.initializeFeatureApiTokens,
 		config.initializeFeatureText,
+		config.initializeFeatureE2EE,
 	}
 
 	for _, initialization := range initializations {
@@ -89,6 +92,32 @@ func (config *Configuration) initializeFeatureAuthentication() error {
 	// Set legacy feature flag for backward compatibility
 	config.Authentication = IsFeatureAvailable(config.FeatureAuthentication)
 	config.NoAnonymousUploads = config.FeatureAuthentication == FeatureForced
+
+	return nil
+}
+
+func (config *Configuration) initializeFeatureLocalLogin() error {
+	if config.FeatureLocalLogin == "" {
+		config.FeatureLocalLogin = FeatureEnabled
+	}
+
+	err := ValidateCustomFeatureFlag(config.FeatureLocalLogin, []string{FeatureDisabled, FeatureEnabled})
+	if err != nil {
+		return fmt.Errorf("Invalid value for FeatureLocalLogin : %s", err)
+	}
+
+	return nil
+}
+
+func (config *Configuration) initializeFeatureDeleteAccount() error {
+	if config.FeatureDeleteAccount == "" {
+		config.FeatureDeleteAccount = FeatureEnabled
+	}
+
+	err := ValidateCustomFeatureFlag(config.FeatureDeleteAccount, []string{FeatureDisabled, FeatureEnabled})
+	if err != nil {
+		return fmt.Errorf("Invalid value for FeatureDeleteAccount : %s", err)
+	}
 
 	return nil
 }
@@ -229,6 +258,25 @@ func (config *Configuration) initializeFeatureClients() error {
 	return nil
 }
 
+func (config *Configuration) initializeFeatureApiTokens() error {
+	if config.FeatureApiTokens == "" {
+		config.FeatureApiTokens = FeatureEnabled
+	}
+
+	err := ValidateCustomFeatureFlag(config.FeatureApiTokens, []string{FeatureDisabled, FeatureEnabled})
+	if err != nil {
+		return fmt.Errorf("Invalid value for FeatureApiTokens : %s", err)
+	}
+
+	// When authentication is forced (no anonymous uploads) and API tokens are disabled,
+	// also disable CLI client downloads since they won't be usable without token auth.
+	if config.FeatureAuthentication == FeatureForced && config.FeatureApiTokens == FeatureDisabled {
+		config.FeatureClients = FeatureDisabled
+	}
+
+	return nil
+}
+
 func (config *Configuration) initializeFeatureGithub() error {
 	if config.FeatureGithub == "" {
 		config.FeatureGithub = FeatureEnabled
@@ -250,6 +298,19 @@ func (config *Configuration) initializeFeatureText() error {
 	err := ValidateFeatureFlag(config.FeatureText)
 	if err != nil {
 		return fmt.Errorf("Invalid value for FeatureText : %s", err)
+	}
+
+	return nil
+}
+
+func (config *Configuration) initializeFeatureE2EE() error {
+	if config.FeatureE2EE == "" {
+		config.FeatureE2EE = FeatureEnabled
+	}
+
+	err := ValidateFeatureFlag(config.FeatureE2EE)
+	if err != nil {
+		return fmt.Errorf("Invalid value for FeatureE2EE : %s", err)
 	}
 
 	return nil

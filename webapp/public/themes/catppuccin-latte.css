@@ -1,0 +1,125 @@
+/*
+ * Plik — Catppuccin Latte Theme
+ * Based on Catppuccin's Latte flavor (lightest)
+ * https://catppuccin.com/
+ * Palette: https://github.com/catppuccin/palette
+ */
+[data-theme="catppuccin-latte"] {
+    color-scheme: light;
+
+    /* ── Surface Scale (inverted: dark text → light background) ── */
+    --color-surface-50: #4c4f69;
+    /* text     — emphasized headings */
+    --color-surface-100: #5c5f77;
+    /* subtext1 — primary text */
+    --color-surface-200: #6c6f85;
+    /* subtext0 — secondary text */
+    --color-surface-300: #7c7f93;
+    /* overlay2 — tertiary text */
+    --color-surface-400: #8c8fa1;
+    /* overlay1 — muted text */
+    --color-surface-500: #9ca0b0;
+    /* overlay0 — subtle labels */
+    --color-surface-600: #acb0be;
+    /* surface2 — hint text */
+    --color-surface-700: #bcc0cc;
+    /* surface1 — dividers */
+    --color-surface-800: #ccd0da;
+    /* surface0 — elevated panels */
+    --color-surface-900: #dce0e8;
+    /* crust    — header, cards */
+    --color-surface-950: #e6e9ef;
+    /* mantle   — page background */
+
+    /* ── Accent (Lavender — softer Catppuccin accent for light mode) ── */
+    --color-accent-400: #7287fd;
+    /* lavender — links, active nav, logo */
+    --color-accent-500: #7287fd;
+    /* lavender — primary buttons */
+    --color-accent-600: #5c6fe0;
+    /* darker   — pressed accent */
+
+    /* ── Danger / Success (Catppuccin palette) ── */
+    --color-danger-500: #d20f39;
+    /* red     — destructive actions */
+    --color-danger-600: #b80d32;
+    --color-success-500: #40a02b;
+    /* green   — success states */
+    --color-success-600: #358c24;
+
+    /* ── Semantic ── */
+    --color-on-accent: #eff1f5;
+}
+
+/* ── Component Overrides (light theme needs opaque surfaces) ── */
+[data-theme="catppuccin-latte"] .toggle-switch {
+    background-color: #acb0be;
+}
+
+[data-theme="catppuccin-latte"] .toggle-switch[data-active="true"] {
+    background-color: #7287fd;
+}
+
+[data-theme="catppuccin-latte"] .glass-card {
+    background-color: #eff1f5;
+    border-color: #ccd0da;
+    box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.06);
+}
+
+[data-theme="catppuccin-latte"] .btn-primary {
+    background-color: color-mix(in srgb, #7287fd 12%, transparent);
+    color: #7287fd;
+    box-shadow: none;
+}
+
+[data-theme="catppuccin-latte"] .btn-primary:hover {
+    background-color: color-mix(in srgb, #7287fd 20%, transparent);
+}
+
+[data-theme="catppuccin-latte"] .btn-success {
+    background-color: color-mix(in srgb, #40a02b 12%, transparent);
+    color: #40a02b;
+    box-shadow: none;
+}
+
+[data-theme="catppuccin-latte"] .btn-success:hover {
+    background-color: color-mix(in srgb, #40a02b 20%, transparent);
+}
+
+[data-theme="catppuccin-latte"] .btn-danger {
+    background-color: color-mix(in srgb, #d20f39 12%, transparent);
+    color: #d20f39;
+    box-shadow: none;
+}
+
+[data-theme="catppuccin-latte"] .btn-danger:hover {
+    background-color: color-mix(in srgb, #d20f39 20%, transparent);
+}
+
+[data-theme="catppuccin-latte"] .btn-ghost {
+    color: #6c6f85;
+}
+
+[data-theme="catppuccin-latte"] .btn-ghost:hover {
+    color: #7287fd;
+    background-color: color-mix(in srgb, #7287fd 8%, transparent);
+}
+
+[data-theme="catppuccin-latte"] .sidebar-section {
+    background-color: #eff1f5;
+    border-color: #ccd0da;
+}
+
+[data-theme="catppuccin-latte"] .file-row {
+    background-color: #eff1f5;
+    border-color: #ccd0da;
+}
+
+[data-theme="catppuccin-latte"] .file-row:hover {
+    background-color: #e6e9ef;
+}
+
+[data-theme="catppuccin-latte"] .input-field {
+    background-color: #eff1f5;
+    border-color: #ccd0da;
+}

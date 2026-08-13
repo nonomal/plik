@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/md5"
 	"fmt"
-	"github.com/dustin/go-humanize"
 	"io"
 	"net/http"
+
+	"github.com/dustin/go-humanize"
 
 	"github.com/root-gg/plik/server/common"
 	"github.com/root-gg/plik/server/context"
@@ -16,6 +18,7 @@ type preprocessOutputReturn struct {
 	size     int64
 	md5sum   string
 	mimeType string
+	isText   bool
 	err      error
 }
 
@@ -130,6 +133,11 @@ func AddFile(ctx *context.Context, resp http.ResponseWriter, req *http.Request) 
 	preprocessOutputCh := make(chan preprocessOutputReturn)
 	go preprocessor(ctx, fileReader, preprocessWriter, preprocessOutputCh)
 
+	// Reset file.Size — the pre-populated value from createUpload is unreliable
+	// (e.g. wrong for E2EE uploads where encryption changes the size).
+	// The preprocessor goroutine will compute the actual size from the stream.
+	file.Size = 0
+
 	// Save file in the data backend
 	var backend data.Backend
 	if upload.Stream {
@@ -148,7 +156,16 @@ func AddFile(ctx *context.Context, resp http.ResponseWriter, req *http.Request) 
 	err = backend.AddFile(file, preprocessReader)
 	if err != nil {
 		ctx.InternalServerError("unable to save file", err)
-		cleanup()
+		if upload.Stream {
+			// Stream uploads store nothing on disk — skip purge and reset to
+			// FileMissing so the frontend can retry with the same file ID.
+			err := ctx.GetMetadataBackend().UpdateFileStatus(file, common.FileUploading, common.FileMissing)
+			if err != nil {
+				log.Warningf("unable to reset stream file status : %s", err)
+			}
+		} else {
+			cleanup()
+		}
 		return
 	}
 
@@ -166,6 +183,7 @@ func AddFile(ctx *context.Context, resp http.ResponseWriter, req *http.Request) 
 	file.Type = preprocessOutput.mimeType
 	file.Size = preprocessOutput.size
 	file.Md5 = preprocessOutput.md5sum
+	file.IsText = preprocessOutput.isText
 
 	// Update file status
 	if upload.Stream {
@@ -196,16 +214,8 @@ func AddFile(ctx *context.Context, resp http.ResponseWriter, req *http.Request) 
 
 	if ctx.IsQuick() {
 		// Do our best to print the file url in the response.
-		var url string
-		if ctx.GetConfig().GetDownloadDomain() != nil {
-			url = ctx.GetConfig().GetDownloadDomain().String()
-		} else {
-			url = ctx.GetConfig().GetServerURL().String()
-		}
-
-		url += fmt.Sprintf("/file/%s/%s/%s", upload.ID, file.ID, file.Name)
-
-		_, _ = resp.Write([]byte(url + "\n"))
+		fileURL := ctx.GetConfig().GetFileURL(upload.ID, file.ID, file.Name, upload.Stream)
+		_, _ = resp.Write([]byte(fileURL + "\n"))
 	} else {
 		common.WriteJSONResponse(resp, file)
 	}
@@ -221,10 +231,11 @@ func preprocessor(ctx *context.Context, file io.Reader, preprocessWriter io.Writ
 	var err error
 	var totalBytes int64
 	var mimeType string
+	var isText bool
 	var md5sum string
 
 	md5Hash := md5.New()
-	buf := make([]byte, 1048)
+	buf := make([]byte, 32*1024)
 
 	eof := false
 	for !eof {
@@ -243,7 +254,12 @@ func preprocessor(ctx *context.Context, file io.Reader, preprocessWriter io.Writ
 
 		// Detect the content-type using the 512 first bytes
 		if totalBytes == 0 {
-			mimeType = http.DetectContentType(buf[:bytesRead])
+			ageHeader := []byte("age-encryption.org")
+			if bytesRead >= len(ageHeader) && bytes.HasPrefix(buf[:bytesRead], ageHeader) {
+				mimeType = "application/octet-stream"
+			} else {
+				mimeType, isText = common.DetectMIME(buf[:bytesRead])
+			}
 		}
 
 		// Increment size
@@ -276,14 +292,14 @@ func preprocessor(ctx *context.Context, file io.Reader, preprocessWriter io.Writ
 
 	errClose := preprocessWriter.Close()
 	if errClose != nil {
-		log.Warningf("unable to close preprocessWriter : %s", err)
+		log.Warningf("unable to close preprocessWriter : %s", errClose)
 	}
 
 	if err != nil {
 		outputCh <- preprocessOutputReturn{err: err}
 	} else {
 		md5sum = fmt.Sprintf("%x", md5Hash.Sum(nil))
-		outputCh <- preprocessOutputReturn{size: totalBytes, md5sum: md5sum, mimeType: mimeType}
+		outputCh <- preprocessOutputReturn{size: totalBytes, md5sum: md5sum, mimeType: mimeType, isText: isText}
 	}
 
 	close(outputCh)

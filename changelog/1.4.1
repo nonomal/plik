@@ -1,0 +1,36 @@
+Plik 1.4.1
+
+Hi, today we're releasing Plik 1.4.1 !
+
+Here is the changelog :
+
+New :
+ - Inline video and audio playback in file viewer (@bodji)
+ - URL deep-linking for file viewer and media timestamps (@bodji)
+ - Runtime settings and webapp customization (branding, themes, custom footer)
+ - 10 built-in themes with dark/light/auto mode and user preference persistence
+ - Improvemets in Home and Admin view (error handling, filtering, bulk token uploads deletion,...)
+ - Show removed/deleted files in download view and Home/Admin views
+ - Configurable streaming timeout, cancellation, and retry
+
+Fix :
+ - Reject E2EE uploads with empty passphrase
+ - Fix file deletion on versioned S3 buckets (#673)
+ - Restore backward compat when only DownloadDomain is set (#676)
+ - Improve mimetype detection with gabriel-vasile/mimetype (#678)
+ - Prevent text editor auto-detection from overwriting user-edited filename (#677)
+ - Close file viewer when viewed file is deleted (#675)
+ - Unify error display with reusable components (#679)
+
+Misc :
+ - Bump Alpine base image to 3.23
+ - Bump Go to 1.26.1 (fixes 5 stdlib vulnerabilities)
+ - Bump minio-go to v7.0.99
+ - Bump MCP go-sdk to v1.4.0
+ - Bump golang.org/x/oauth2 to v0.36.0
+ - Bump google.golang.org/api to v0.269.0
+
+Binaries will be built with Go 1.26.1
+
+Faithfully,
+The Plik team

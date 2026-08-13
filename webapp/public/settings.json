@@ -1,0 +1,36 @@
+{
+  // Title displayed in the header logo and browser tab
+  "name": "Plik",
+  // Path to a logo image (e.g. "/img/logo.png"). When set, replaces the text logo.
+  "logo": "",
+  // Default theme: "dark", "light", or "auto" (follows user's OS preference)
+  "theme": "auto",
+  // Available themes in the picker ("*" = all built-in themes, [] = dark only)
+  // Examples: ["dark", "light"] or ["dark", "catppuccin-mocha", "nord"]
+  "themes": [
+    "*"
+  ],
+  // Theme used by "auto" when the OS prefers dark mode (default: "dark")
+  "defaultDarkTheme": "dark",
+  // Theme used by "auto" when the OS prefers light mode (default: "light")
+  "defaultLightTheme": "light",
+  // Default language: "auto" (detect from browser), "en", "fr", etc.
+  "language": "auto",
+  // Available languages in the picker ("*" = all built-in, [] = English only)
+  "languages": [
+    "*"
+  ],
+  // Background image path (relative to webapp root, e.g. "/img/background.jpg")
+  "backgroundImage": "",
+  // Fallback background color (CSS value, e.g. "#1a1a2e")
+  "backgroundColor": "",
+  // Overlay opacity (0–1) — darkens the background for readability
+  "overlayOpacity": 0.2,
+  // Path to a custom CSS file (e.g. "/css/custom.css")
+  "customCSS": "",
+  // Path to a custom JavaScript file (e.g. "/js/custom.js")
+  "customJS": "",
+  // Custom footer HTML (e.g. "Powered by <a href='https://plik.root.gg'>Plik</a>")
+  // Overrides the deprecated AbuseContact from plikd.cfg when set.
+  "footer": ""
+}

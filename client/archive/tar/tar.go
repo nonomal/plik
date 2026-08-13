@@ -1,13 +1,14 @@
 package tar
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/root-gg/plik/server/common"
 )
 
 // Backend object
@@ -17,19 +18,15 @@ type Backend struct {
 
 // NewTarBackend instantiate a new Tar Archive Backend
 // and configure it from config map
-func NewTarBackend(config map[string]interface{}) (tb *Backend, err error) {
+func NewTarBackend(config map[string]any) (tb *Backend, err error) {
 	tb = new(Backend)
 	tb.Config = NewTarBackendConfig(config)
-	if _, err = os.Stat(tb.Config.Tar); os.IsNotExist(err) || os.IsPermission(err) {
-		if tb.Config.Tar, err = exec.LookPath("tar"); err != nil {
-			err = errors.New("tar binary not found in $PATH, please install or edit ~/.plickrc")
-		}
-	}
+	tb.Config.Tar, err = common.LookupBinary(tb.Config.Tar, "tar")
 	return
 }
 
 // Configure implementation for TAR Archive Backend
-func (tb *Backend) Configure(arguments map[string]interface{}) (err error) {
+func (tb *Backend) Configure(arguments map[string]any) (err error) {
 	if arguments["--compress"] != nil && arguments["--compress"].(string) != "" {
 		tb.Config.Compress = arguments["--compress"].(string)
 	}
@@ -42,9 +39,7 @@ func (tb *Backend) Configure(arguments map[string]interface{}) (err error) {
 // Archive implementation for TAR Archive Backend
 func (tb *Backend) Archive(files []string) (reader io.Reader, err error) {
 	if len(files) == 0 {
-		fmt.Println("Unable to make a tar archive from STDIN")
-		os.Exit(1)
-		return
+		return nil, fmt.Errorf("unable to make a tar archive from STDIN")
 	}
 
 	var args []string
@@ -57,29 +52,27 @@ func (tb *Backend) Archive(files []string) (reader io.Reader, err error) {
 
 	reader, writer := io.Pipe()
 
+	var stderr bytes.Buffer
 	cmd := exec.Command(tb.Config.Tar, args...)
 	cmd.Stdout = writer
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = &stderr
 
 	go func() {
 		err := cmd.Start()
 		if err != nil {
-			fmt.Printf("Unable to run tar cmd : %s\n", err)
-			os.Exit(1)
+			_ = writer.CloseWithError(fmt.Errorf("unable to start tar cmd: %w", err))
 			return
 		}
 		err = cmd.Wait()
 		if err != nil {
-			fmt.Printf("Unable to run tar cmd : %s\n", err)
-			os.Exit(1)
+			if stderr.Len() > 0 {
+				_ = writer.CloseWithError(fmt.Errorf("tar cmd failed: %w: %s", err, stderr.String()))
+			} else {
+				_ = writer.CloseWithError(fmt.Errorf("tar cmd failed: %w", err))
+			}
 			return
 		}
-		err = writer.Close()
-		if err != nil {
-			fmt.Printf("Unable to run tar cmd : %s\n", err)
-			os.Exit(1)
-			return
-		}
+		_ = writer.Close()
 	}()
 
 	return reader, nil
@@ -96,7 +89,7 @@ func (tb *Backend) Comments() string {
 }
 
 // GetConfiguration implementation for TAR Archive Backend
-func (tb *Backend) GetConfiguration() interface{} {
+func (tb *Backend) GetConfiguration() any {
 	return tb.Config
 }
 
@@ -106,11 +99,11 @@ func (tb *Backend) GetFileName(files []string) (name string) {
 	if len(files) == 1 {
 		name = filepath.Base(files[0])
 	}
-	name += ".tar" + getCompressExtention(tb.Config.Compress)
+	name += ".tar" + getCompressExtension(tb.Config.Compress)
 	return
 }
 
-func getCompressExtention(mode string) string {
+func getCompressExtension(mode string) string {
 	switch mode {
 	case "gzip":
 		return ".gz"
@@ -124,7 +117,7 @@ func getCompressExtention(mode string) string {
 		return ".lzo"
 	case "lzma":
 		return ".lzma"
-	case "compres":
+	case "compress":
 		return ".Z"
 	default:
 		return ""

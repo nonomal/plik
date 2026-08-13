@@ -1,0 +1,96 @@
+name: docker-build-pr
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  check-permissions:
+    name: Check Permissions
+    # Trigger only on pull request comments and when the comment contains "docker build"
+    if: github.event.issue.pull_request && github.event.comment.body == 'docker build'
+    runs-on: ubuntu-latest
+    outputs:
+      head_ref: ${{ steps.pr.outputs.head_ref }}
+      head_repo: ${{ steps.pr.outputs.head_repo }}
+    steps:
+      - name: Check permissions
+        id: check_perms
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.payload.comment.user.login,
+            });
+            const allowed = ['admin', 'write'].includes(permission.permission);
+            if (!allowed) {
+              core.setFailed(`User ${context.payload.comment.user.login} does not have permission to trigger this workflow.`);
+            }
+
+      - name: Add reaction
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket',
+            });
+
+      - name: Get PR info
+        id: pr
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            core.setOutput('head_ref', pr.head.ref);
+            core.setOutput('head_repo', pr.head.repo.full_name);
+
+  build:
+    name: Build
+    needs: check-permissions
+    uses: ./.github/workflows/docker-build-reusable.yaml
+    with:
+      pr_number: ${{ github.event.issue.number }}
+      head_ref: ${{ needs.check-permissions.outputs.head_ref }}
+      head_repo: ${{ needs.check-permissions.outputs.head_repo }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  notify:
+    name: Notify
+    needs: [check-permissions, build]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Post success comment
+        if: needs.build.result == 'success'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `✅ Docker build and push successful!\n\nImage: \`rootgg/plik:pr-${context.issue.number}\``
+            });
+
+      - name: Post failure comment
+        if: needs.build.result == 'failure'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `❌ Docker build and push failed. Check the [workflow logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`
+            });

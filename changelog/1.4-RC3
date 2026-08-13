@@ -1,0 +1,29 @@
+Plik 1.4-RC3
+
+Hi, today we're releasing the third release candidate of the next plik major version 1.4 !
+
+Here is the changelog :
+
+New :
+ - CLI device authorization flow for browser-based login (#567)
+ - FeatureLocalLogin and FeatureDeleteAccount feature flags (#524)
+ - OIDC: parse id_token claims, enforce email_verified, harden sub validation (@babs)
+ - OIDC: synthesize display name from given_name + family_name
+ - Webapp: auto-display inline viewer for single text file uploads (@bodji)
+ - Docker: add :preview tag for all releases (stable and pre-release)
+ - CI: allow deploying PR images from pull request comments (@bodji)
+
+Fix :
+ - Prevent incorrect Docker tagging in PR builds (@bodji)
+ - Resolve pre-existing lint warnings
+ - Validate auth method is configured when authentication is enabled
+
+Documentation :
+ - Document metadata import/export (#583)
+ - Add Windows "Send to Plik" guide (#565)
+ - Document Docker user permissions and persistent storage (#585)
+
+Binaries will be built with Go 1.26.0
+
+Faithfully,
+The plik team

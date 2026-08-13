@@ -91,6 +91,7 @@ func TestAddFileWithID(t *testing.T) {
 	require.Equal(t, common.FileUploaded, fileResult.Status, "invalid file status")
 	require.Equal(t, contentMD5, fileResult.Md5, "invalid file md5")
 	require.Equal(t, "text/plain; charset=utf-8", fileResult.Type, "invalid file type")
+	require.True(t, fileResult.IsText, "plain text should be detected as text")
 	require.Equal(t, int64(len(content)), fileResult.Size, "invalid file size")
 }
 
@@ -314,7 +315,7 @@ func TestAddFileTooManyFiles(t *testing.T) {
 
 	upload := &common.Upload{IsAdmin: true}
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		upload.NewFile()
 	}
 	createTestUpload(t, ctx, upload)
@@ -662,4 +663,146 @@ func TestAddFileMaxUserSizeOK(t *testing.T) {
 
 func TestAddFileMaxUserSizeKO(t *testing.T) {
 	testAddFileMaxUserSize(t, false)
+}
+
+func TestAddFileE2EEMimeType(t *testing.T) {
+	ctx := newTestingContext(common.NewConfiguration())
+
+	upload := &common.Upload{IsAdmin: true, E2EE: "age"}
+	file := upload.NewFile()
+	file.Name = "secret.txt"
+	createTestUpload(t, ctx, upload)
+
+	// Even with the E2EE flag, the preprocessor relies on age header sniffing
+	reader, contentType, err := getMultipartFormData(file.Name, bytes.NewBuffer([]byte("age-encryption.org/v1\n-> scrypt ...\nencrypted payload")))
+	require.NoError(t, err, "unable get multipart form data")
+
+	req := getUploadRequest(t, upload, file, reader, contentType)
+
+	rr := ctx.NewRecorder(req)
+	AddFile(ctx, rr, req)
+	context.TestOK(t, rr)
+
+	respBody, err := io.ReadAll(rr.Body)
+	require.NoError(t, err, "unable to read response body")
+
+	var fileResult = &common.File{}
+	err = json.Unmarshal(respBody, fileResult)
+	require.NoError(t, err, "unable to unmarshal response body")
+
+	require.Equal(t, "application/octet-stream", fileResult.Type, "E2EE uploads should always be application/octet-stream")
+	require.False(t, fileResult.IsText, "E2EE uploads should not be detected as text")
+}
+
+func TestAddFilePNGMimeType(t *testing.T) {
+	ctx := newTestingContext(common.NewConfiguration())
+
+	upload := &common.Upload{IsAdmin: true}
+	file := upload.NewFile()
+	file.Name = "image.png"
+	createTestUpload(t, ctx, upload)
+
+	// PNG magic bytes
+	pngData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	reader, contentType, err := getMultipartFormData(file.Name, bytes.NewBuffer(pngData))
+	require.NoError(t, err, "unable get multipart form data")
+
+	req := getUploadRequest(t, upload, file, reader, contentType)
+
+	rr := ctx.NewRecorder(req)
+	AddFile(ctx, rr, req)
+	context.TestOK(t, rr)
+
+	respBody, err := io.ReadAll(rr.Body)
+	require.NoError(t, err)
+
+	var fileResult = &common.File{}
+	err = json.Unmarshal(respBody, fileResult)
+	require.NoError(t, err)
+
+	require.Equal(t, "image/png", fileResult.Type, "PNG should be detected")
+	require.False(t, fileResult.IsText, "PNG should not be detected as text")
+}
+
+func TestAddFileIsTextDetection(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileName string
+		content  []byte
+		wantMime string
+		wantText bool
+	}{
+		{
+			name:     "JSON is text (application/* with text ancestor)",
+			fileName: "config.json",
+			content:  []byte(`{"name": "plik", "version": "1.0"}`),
+			wantMime: "application/json",
+			wantText: true,
+		},
+		{
+			name:     "plain text is text",
+			fileName: "readme.txt",
+			content:  []byte("Hello, world! This is a plain text file."),
+			wantMime: "text/plain; charset=utf-8",
+			wantText: true,
+		},
+		{
+			name:     "Perl script is text",
+			fileName: "script.pl",
+			content:  []byte("#!/usr/bin/perl\nuse strict;\nuse warnings;\nprint \"hello\\n\";\n"),
+			wantMime: "text/x-perl",
+			wantText: true,
+		},
+		{
+			name:     "Shell script is text",
+			fileName: "deploy.sh",
+			content:  []byte("#!/bin/bash\nset -euo pipefail\necho \"deploying\"\n"),
+			wantMime: "text/x-shellscript",
+			wantText: true,
+		},
+		{
+			name:     "PNG is not text",
+			fileName: "photo.png",
+			content:  []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A},
+			wantMime: "image/png",
+			wantText: false,
+		},
+		{
+			name:     "ZIP is not text",
+			fileName: "archive.zip",
+			content:  []byte{0x50, 0x4B, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00},
+			wantMime: "application/zip",
+			wantText: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := newTestingContext(common.NewConfiguration())
+
+			upload := &common.Upload{IsAdmin: true}
+			file := upload.NewFile()
+			file.Name = tt.fileName
+			createTestUpload(t, ctx, upload)
+
+			reader, contentType, err := getMultipartFormData(file.Name, bytes.NewBuffer(tt.content))
+			require.NoError(t, err, "unable get multipart form data")
+
+			req := getUploadRequest(t, upload, file, reader, contentType)
+
+			rr := ctx.NewRecorder(req)
+			AddFile(ctx, rr, req)
+			context.TestOK(t, rr)
+
+			respBody, err := io.ReadAll(rr.Body)
+			require.NoError(t, err)
+
+			var fileResult = &common.File{}
+			err = json.Unmarshal(respBody, fileResult)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantMime, fileResult.Type, "unexpected MIME type")
+			require.Equal(t, tt.wantText, fileResult.IsText, "unexpected IsText value")
+		})
+	}
 }

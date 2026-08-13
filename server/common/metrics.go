@@ -161,7 +161,7 @@ func (m *PlikMetrics) UpdateServerStatistics(stats *ServerStats, elapsed time.Du
 	m.size.Set(float64(stats.TotalSize))
 	m.anonymousSize.Set(float64(stats.AnonymousSize))
 	m.users.Set(float64(stats.Users))
-	m.lastStatsRefresh.Set(float64(time.Now().Second()))
+	m.lastStatsRefresh.Set(float64(time.Now().Unix()))
 	m.serverStatsRefreshDuration.Observe(elapsed.Seconds())
 }
 
@@ -172,7 +172,7 @@ func (m *PlikMetrics) UpdateCleaningStatistics(stats *CleaningStats, elapsed tim
 	m.cleaningDeletedUploads.Add(float64(stats.DeletedUploads))
 	m.cleaningOrphanFiles.Add(float64(stats.OrphanFilesCleaned))
 	m.cleaningOrphanTokens.Add(float64(stats.OrphanTokensCleaned))
-	m.lastCleaning.Set(float64(time.Now().Second()))
+	m.lastCleaning.Set(float64(time.Now().Unix()))
 	m.cleaningDuration.Observe(elapsed.Seconds())
 }
 

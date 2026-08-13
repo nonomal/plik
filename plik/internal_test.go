@@ -26,6 +26,7 @@ package plik
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -42,7 +43,7 @@ func TestCreateUpload(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload := &common.Upload{}
@@ -70,7 +71,8 @@ func TestCreateUploadAPIFail(t *testing.T) {
 	_, err := pc.create(&common.Upload{})
 	common.RequireError(t, err, "connection refused")
 
-	shutdown, err := common.StartAPIMockServer(common.DummyHandler)
+	port, shutdown, err := common.StartAPIMockServer(common.DummyHandler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	require.NoError(t, err, "unable to start plik server")
 	defer shutdown()
 
@@ -88,7 +90,8 @@ func TestCreateUploadInvalidJSON(t *testing.T) {
 		resp.Write([]byte("invalid json"))
 	})
 
-	shutdown, err := common.StartAPIMockServer(handler)
+	port, shutdown, err := common.StartAPIMockServer(handler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
@@ -100,7 +103,7 @@ func TestUploadFileNoUpload(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	err = common.CheckHTTPServer(ps.GetConfig().ListenPort)
@@ -119,7 +122,7 @@ func TestUploadFileReaderError(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	err = common.CheckHTTPServer(ps.GetConfig().ListenPort)
@@ -152,7 +155,8 @@ func TestUploadFileAPIFail(t *testing.T) {
 	_, err := pc.uploadFile(&common.Upload{}, common.NewFile(), &bytes.Buffer{})
 	common.RequireError(t, err, "connection refused")
 
-	shutdown, err := common.StartAPIMockServer(common.DummyHandler)
+	port, shutdown, err := common.StartAPIMockServer(common.DummyHandler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
@@ -170,7 +174,8 @@ func TestUploadFileInvalidJSON(t *testing.T) {
 		resp.Write([]byte("invalid json"))
 	})
 
-	shutdown, err := common.StartAPIMockServer(handler)
+	port, shutdown, err := common.StartAPIMockServer(handler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
@@ -186,7 +191,8 @@ func TestMakeRequestDebug(t *testing.T) {
 		resp.Write([]byte("display this response"))
 	})
 
-	shutdown, err := common.StartAPIMockServer(handler)
+	port, shutdown, err := common.StartAPIMockServer(handler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
@@ -207,7 +213,7 @@ func TestMakeRequestDebug(t *testing.T) {
 	req, err := http.NewRequest("GET", pc.URL+"/", bytes.NewBufferString("display this request"))
 	require.NoError(t, err, "unable to create request")
 
-	_, err = pc.MakeRequest(req)
+	_, err = pc.makeRequest(req)
 	require.NoError(t, err, "missing error")
 
 	os.Stdout = stdout
@@ -233,7 +239,8 @@ func TestMakeRequestDebugFile(t *testing.T) {
 		resp.Write([]byte("display this response"))
 	})
 
-	shutdown, err := common.StartAPIMockServer(handler)
+	port, shutdown, err := common.StartAPIMockServer(handler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
@@ -254,7 +261,7 @@ func TestMakeRequestDebugFile(t *testing.T) {
 	req, err := http.NewRequest("POST", pc.URL+"/file", bytes.NewBufferString("display this request"))
 	require.NoError(t, err, "unable to create request")
 
-	_, err = pc.MakeRequest(req)
+	_, err = pc.makeRequest(req)
 	require.NoError(t, err, "missing error")
 
 	os.Stdout = stdout
@@ -280,7 +287,8 @@ func TestMakeRequestDebugStream(t *testing.T) {
 		resp.Write([]byte("display this response"))
 	})
 
-	shutdown, err := common.StartAPIMockServer(handler)
+	port, shutdown, err := common.StartAPIMockServer(handler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
@@ -301,7 +309,7 @@ func TestMakeRequestDebugStream(t *testing.T) {
 	req, err := http.NewRequest("POST", pc.URL+"/stream", bytes.NewBufferString("display this request"))
 	require.NoError(t, err, "unable to create request")
 
-	_, err = pc.MakeRequest(req)
+	_, err = pc.makeRequest(req)
 	require.NoError(t, err, "missing error")
 
 	os.Stdout = stdout
@@ -326,7 +334,8 @@ func TestMakeRequestDebugGetFile(t *testing.T) {
 		resp.Write([]byte("display this response"))
 	})
 
-	shutdown, err := common.StartAPIMockServer(handler)
+	port, shutdown, err := common.StartAPIMockServer(handler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
@@ -347,7 +356,7 @@ func TestMakeRequestDebugGetFile(t *testing.T) {
 	req, err := http.NewRequest("GET", pc.URL+"/file", bytes.NewBufferString("display this request"))
 	require.NoError(t, err, "unable to create request")
 
-	_, err = pc.MakeRequest(req)
+	_, err = pc.makeRequest(req)
 	require.NoError(t, err, "missing error")
 
 	os.Stdout = stdout
@@ -372,7 +381,8 @@ func TestMakeRequestDebugGetArchive(t *testing.T) {
 		resp.Write([]byte("display this response"))
 	})
 
-	shutdown, err := common.StartAPIMockServer(handler)
+	port, shutdown, err := common.StartAPIMockServer(handler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
@@ -393,7 +403,7 @@ func TestMakeRequestDebugGetArchive(t *testing.T) {
 	req, err := http.NewRequest("GET", pc.URL+"/file", bytes.NewBufferString("display this request"))
 	require.NoError(t, err, "unable to create request")
 
-	_, err = pc.MakeRequest(req)
+	_, err = pc.makeRequest(req)
 	require.NoError(t, err, "missing error")
 
 	os.Stdout = stdout
@@ -422,14 +432,15 @@ func TestMakeRequestErrorParsing(t *testing.T) {
 
 	})
 
-	shutdown, err := common.StartAPIMockServer(handler)
+	port, shutdown, err := common.StartAPIMockServer(handler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
 	req, err := http.NewRequest("GET", pc.URL+"/", nil)
 	require.NoError(t, err, "unable to create request")
 
-	_, err = pc.MakeRequest(req)
+	_, err = pc.makeRequest(req)
 	common.RequireError(t, err, "500 Internal Server Error : plik_api_error")
 }
 
@@ -441,14 +452,15 @@ func TestMakeRequestErrorParsingInvalidJSON(t *testing.T) {
 		resp.Write([]byte("plik_api_error"))
 	})
 
-	shutdown, err := common.StartAPIMockServer(handler)
+	port, shutdown, err := common.StartAPIMockServer(handler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
 	req, err := http.NewRequest("GET", pc.URL+"/", nil)
 	require.NoError(t, err, "unable to create request")
 
-	_, err = pc.MakeRequest(req)
+	_, err = pc.makeRequest(req)
 	common.RequireError(t, err, "500 Internal Server Error : plik_api_error")
 }
 
@@ -459,13 +471,14 @@ func TestMakeRequestErrorParsingEmpty(t *testing.T) {
 		resp.WriteHeader(http.StatusInternalServerError)
 	})
 
-	shutdown, err := common.StartAPIMockServer(handler)
+	port, shutdown, err := common.StartAPIMockServer(handler)
+	pc.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	defer shutdown()
 	require.NoError(t, err, "unable to start HTTP server server")
 
 	req, err := http.NewRequest("GET", pc.URL+"/", nil)
 	require.NoError(t, err, "unable to create request")
 
-	_, err = pc.MakeRequest(req)
+	_, err = pc.makeRequest(req)
 	common.RequireError(t, err, "500 Internal Server Error")
 }

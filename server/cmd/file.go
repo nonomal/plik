@@ -2,8 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/root-gg/utils"
 	"os"
+
+	"github.com/root-gg/utils"
 
 	"github.com/dustin/go-humanize"
 	"github.com/spf13/cobra"
@@ -16,6 +17,7 @@ type fileFlagParams struct {
 	uploadID string
 	fileID   string
 	human    bool
+	all      bool
 }
 
 var fileParams = fileFlagParams{}
@@ -30,21 +32,32 @@ var fileCmd = &cobra.Command{
 var listFilesCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List files",
-	Run:   listFiles,
+	Example: `  plikd file list
+  plikd file list --upload abc123
+  plikd file list --file def456
+  plikd file list --human=false`,
+	Run: listFiles,
 }
 
 // showFileCmd represents the "file show" command
 var showFileCmd = &cobra.Command{
-	Use:   "show",
-	Short: "show file info",
-	Run:   showFile,
+	Use:     "show",
+	Short:   "Show file info",
+	Example: `  plikd file show --file abc123`,
+	Run:     showFile,
 }
 
-// deleteFilesCmd represents the "file delete" command
-var deleteFilesCmd = &cobra.Command{
+// deleteFileCmd represents the "file delete" command
+var deleteFileCmd = &cobra.Command{
 	Use:   "delete",
-	Short: "Delete files",
-	Run:   deleteFiles,
+	Short: "Delete a file, an upload, or all uploads",
+	Long: `Delete a file, an upload, or all uploads.
+
+You must specify exactly one of --file, --upload, or --all.`,
+	Example: `  plikd file delete --file abc123
+  plikd file delete --upload def456
+  plikd file delete --all`,
+	Run: deleteFiles,
 }
 
 func init() {
@@ -58,7 +71,9 @@ func init() {
 	listFilesCmd.Flags().BoolVar(&fileParams.human, "human", true, "human readable size")
 
 	fileCmd.AddCommand(showFileCmd)
-	fileCmd.AddCommand(deleteFilesCmd)
+
+	fileCmd.AddCommand(deleteFileCmd)
+	deleteFileCmd.Flags().BoolVar(&fileParams.all, "all", false, "delete ALL uploads (requires confirmation)")
 }
 
 func listFiles(cmd *cobra.Command, args []string) {
@@ -127,10 +142,32 @@ func showFile(cmd *cobra.Command, args []string) {
 
 	utils.Dump(file)
 	fmt.Printf("Upload URL : %s/#/?id=%s\n", config.GetServerURL(), file.UploadID)
-	fmt.Printf("File URL : %s/file/%s/%s/%s\n", config.GetServerURL(), file.UploadID, file.ID, file.Name)
+	fmt.Printf("File URL   : %s\n", config.GetFileURL(file.UploadID, file.ID, file.Name, false))
 }
 
 func deleteFiles(cmd *cobra.Command, args []string) {
+	// Require exactly one of --file, --upload, or --all
+	flagCount := 0
+	if fileParams.fileID != "" {
+		flagCount++
+	}
+	if fileParams.uploadID != "" {
+		flagCount++
+	}
+	if fileParams.all {
+		flagCount++
+	}
+
+	if flagCount == 0 {
+		fmt.Println("Please specify one of --file, --upload, or --all")
+		_ = cmd.Usage()
+		os.Exit(1)
+	}
+	if flagCount > 1 {
+		fmt.Println("Please specify only one of --file, --upload, or --all")
+		os.Exit(1)
+	}
+
 	initializeMetadataBackend()
 
 	if fileParams.fileID != "" {
@@ -160,6 +197,8 @@ func deleteFiles(cmd *cobra.Command, args []string) {
 			fmt.Printf("Unable to remove file %s : %s\n", fileParams.fileID, err)
 			os.Exit(1)
 		}
+
+		fmt.Printf("File %s has been removed\n", fileParams.fileID)
 	} else if fileParams.uploadID != "" {
 
 		// Ask confirmation
@@ -175,10 +214,12 @@ func deleteFiles(cmd *cobra.Command, args []string) {
 
 		err = metadataBackend.RemoveUpload(fileParams.uploadID)
 		if err != nil {
-			fmt.Printf("Unable to get upload files : %s\n", err)
+			fmt.Printf("Unable to remove upload %s : %s\n", fileParams.uploadID, err)
 			os.Exit(1)
 		}
-	} else {
+
+		fmt.Printf("Upload %s has been removed\n", fileParams.uploadID)
+	} else if fileParams.all {
 
 		// Ask confirmation
 		fmt.Printf("Do you really want to remove ALL uploads ? [y/N]\n")
@@ -199,14 +240,16 @@ func deleteFiles(cmd *cobra.Command, args []string) {
 			fmt.Printf("Unable to delete uploads : %s\n", err)
 			os.Exit(1)
 		}
+
+		fmt.Println("All uploads have been removed")
 	}
 
+	// Clean data backend
 	plik := server.NewPlikServer(config)
 	plik.WithMetadataBackend(metadataBackend)
 
 	initializeDataBackend()
 	plik.WithDataBackend(dataBackend)
 
-	// Delete upload and files
 	plik.Clean()
 }

@@ -3,11 +3,12 @@ package context
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
+
 	"github.com/root-gg/plik/server/common"
-	"github.com/root-gg/utils"
 )
 
 // CreateUpload from params and context (check configuration and default values, generate upload and file IDs, ... )
@@ -37,6 +38,9 @@ func (ctx *Context) CreateUpload(params *common.Upload) (upload *common.Upload, 
 	}
 
 	// Handle Basic Auth parameters
+	if params.ProtectedByPassword && params.Password == "" {
+		return nil, fmt.Errorf("upload password is empty")
+	}
 	err = ctx.setBasicAuth(upload, params.Login, params.Password)
 	if err != nil {
 		return nil, err
@@ -166,13 +170,24 @@ func (ctx *Context) setParams(upload *common.Upload, params *common.Upload) (err
 	if upload.Stream && config.FeatureStream == common.FeatureDisabled {
 		return fmt.Errorf("streaming uploads are disabled")
 	} else if !upload.Stream && config.FeatureStream == common.FeatureForced {
-		upload.Stream = true
+		return fmt.Errorf("streaming uploads are required")
 	}
 
 	if config.FeatureComments == common.FeatureDisabled {
 		upload.Comments = ""
+	} else if config.FeatureComments == common.FeatureForced && strings.TrimSpace(params.Comments) == "" {
+		return fmt.Errorf("upload comments are required")
 	} else {
 		upload.Comments = params.Comments
+	}
+
+	if len(upload.Comments) > 32768 {
+		return fmt.Errorf("comment is too long (max 32768 bytes)")
+	}
+
+	upload.E2EE = params.E2EE
+	if upload.E2EE != "" && !common.IsValidE2EEScheme(upload.E2EE) {
+		return fmt.Errorf("invalid e2ee scheme %q", upload.E2EE)
 	}
 
 	return nil
@@ -242,6 +257,13 @@ func (ctx *Context) setBasicAuth(upload *common.Upload, login string, password s
 		return nil
 	}
 
+	if len(login) > 128 {
+		return fmt.Errorf("login too long (max 128 characters)")
+	}
+	if len(password) > 128 {
+		return fmt.Errorf("password too long (max 128 characters)")
+	}
+
 	if login != "" {
 		upload.Login = login
 	} else {
@@ -250,8 +272,9 @@ func (ctx *Context) setBasicAuth(upload *common.Upload, login string, password s
 
 	upload.ProtectedByPassword = true
 
-	// Save only the md5sum of this string to authenticate further requests
-	upload.Password, err = utils.Md5sum(common.EncodeAuthBasicHeader(upload.Login, password))
+	// Hash credentials with bcrypt(sha256(base64(login:password)))
+	// SHA-256 pre-hash removes bcrypt's 72-byte input limit
+	upload.Password, err = common.HashUploadPassword(upload.Login, password)
 	if err != nil {
 		return fmt.Errorf("unable to generate password hash : %s", err)
 	}

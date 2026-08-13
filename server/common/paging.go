@@ -67,16 +67,23 @@ func (pq *PagingQuery) Paginator() *paginator.Paginator {
 
 // PagingResponse for the paging system
 type PagingResponse struct {
-	After   *string       `json:"after"`
-	Before  *string       `json:"before"`
-	Results []interface{} `json:"results"`
+	After   *string `json:"after"`
+	Before  *string `json:"before"`
+	Total   *int64  `json:"total,omitempty"`
+	Results []any   `json:"results"`
 }
 
 // NewPagingResponse create a new PagingResponse from query results ( results must be a slice )
-func NewPagingResponse(results interface{}, cursor *paginator.Cursor) (pr *PagingResponse) {
+func NewPagingResponse(results any, cursor *paginator.Cursor) (pr *PagingResponse) {
 	pr = &PagingResponse{}
 	pr.Results = utils.ToInterfaceArray(results)
 	pr.Before = cursor.Before
 	pr.After = cursor.After
+	return pr
+}
+
+// WithTotal set the total count on the paging response
+func (pr *PagingResponse) WithTotal(total int64) *PagingResponse {
+	pr.Total = &total
 	return pr
 }

@@ -2,11 +2,11 @@ package context
 
 import (
 	"fmt"
-	"github.com/root-gg/plik/server/common"
 	"log"
 	"net/http"
 	"runtime/debug"
-	"strings"
+
+	"github.com/root-gg/plik/server/common"
 )
 
 var internalServerError = "internal server error"
@@ -32,37 +32,43 @@ func (ctx *Context) InternalServerError(message string, err error) {
 }
 
 // BadRequest is a helper to generate http.BadRequest responses
-func (ctx *Context) BadRequest(message string, params ...interface{}) {
+func (ctx *Context) BadRequest(message string, params ...any) {
 	message = fmt.Sprintf(message, params...)
 	ctx.Fail(message, nil, http.StatusBadRequest)
 }
 
 // NotFound is a helper to generate http.NotFound responses
-func (ctx *Context) NotFound(message string, params ...interface{}) {
+func (ctx *Context) NotFound(message string, params ...any) {
 	message = fmt.Sprintf(message, params...)
 	ctx.Fail(message, nil, http.StatusNotFound)
 }
 
 // Forbidden is a helper to generate http.Forbidden responses
-func (ctx *Context) Forbidden(message string, params ...interface{}) {
+func (ctx *Context) Forbidden(message string, params ...any) {
 	message = fmt.Sprintf(message, params...)
 	ctx.Fail(message, nil, http.StatusForbidden)
 }
 
+// NotAcceptable is a helper to generate http.StatusNotAcceptable responses
+func (ctx *Context) NotAcceptable(message string, params ...any) {
+	message = fmt.Sprintf(message, params...)
+	ctx.Fail(message, nil, http.StatusNotAcceptable)
+}
+
 // Unauthorized is a helper to generate http.Unauthorized responses
-func (ctx *Context) Unauthorized(message string, params ...interface{}) {
+func (ctx *Context) Unauthorized(message string, params ...any) {
 	message = fmt.Sprintf(message, params...)
 	ctx.Fail(message, nil, http.StatusUnauthorized)
 }
 
 // MissingParameter is a helper to generate http.BadRequest responses
-func (ctx *Context) MissingParameter(message string, params ...interface{}) {
+func (ctx *Context) MissingParameter(message string, params ...any) {
 	message = fmt.Sprintf(message, params...)
 	ctx.BadRequest(fmt.Sprintf("missing %s", message))
 }
 
 // InvalidParameter is a helper to generate http.BadRequest responses
-func (ctx *Context) InvalidParameter(message string, params ...interface{}) {
+func (ctx *Context) InvalidParameter(message string, params ...any) {
 	message = fmt.Sprintf(message, params...)
 	ctx.BadRequest(fmt.Sprintf("invalid %s", message))
 }
@@ -74,8 +80,6 @@ func (ctx *Context) Recover() {
 		debug.PrintStack()
 	}
 }
-
-var userAgents = []string{"wget", "curl", "python-urllib", "libwwww-perl", "php", "pycurl", "go-http-client", "plik_client"}
 
 // Error handles common.HttpError
 func (ctx *Context) Error(err error) {
@@ -122,14 +126,8 @@ func (ctx *Context) Fail(message string, err error, status int) {
 		if isRedirectOnFailure {
 			// The web client uses http redirect to get errors
 			// from http redirect and display a nice HTML error message
-			// But cli clients needs a clean string response
-			userAgent := strings.ToLower(req.UserAgent())
-			redirect = true
-			for _, ua := range userAgents {
-				if strings.HasPrefix(userAgent, ua) {
-					redirect = false
-				}
-			}
+			// Only redirect when the request comes from the Plik webapp
+			redirect = common.IsPlikWebapp(req)
 		}
 
 		if config != nil && redirect {

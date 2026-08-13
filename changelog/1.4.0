@@ -1,0 +1,63 @@
+Plik 1.4.0
+
+Hi, today we're releasing Plik 1.4.0 !
+
+Here is the changelog :
+
+Webapp:
+ - Complete rewrite using Vue 3 + Vite + Tailwind CSS (replacing AngularJS/Bootstrap)
+ - End-to-End Encryption (E2EE) via Age interoperable CLI <=> Webapp
+ - Text editor (w/ syntax highlighting + Markdown support) for text file uploads (@bodji)
+ - Text (w/ syntax highlighting + Markdown support) and image preview in download view
+ - Filter uploads by properties and sort-by-size in upload listings (home/admin views)
+ - Filter users with search bar, and sort controls (admin view)
+ - Help tooltips on upload settings
+ - User profile pictures from OAuth providers
+ - Playwright E2E and Vitest unit test suites
+
+Server:
+ - OIDC authentication provider support (generic OIDC + Keycloak) (@babs)
+ - HTTP range request support for all storage backends (@duckie)
+ - FeatureLocalLogin and FeatureDeleteAccount feature flags
+ - bcrypt(sha256) for upload password hashing
+ - Download domain restriction with PlikDomain config and CORS
+ - Comprehensive security hardening (thanks @bewiwi for the audit)
+ - Prometheus metrics improvements
+
+CLI:
+ - CLI device authorization flow for browser-based login (--login)
+ - Json output mode (--json)
+ - Non-interactive mode (--yes)
+ - Test suite rewritten from Bash to Golang
+ - Bash client overhaul: URL encoding, missing features, tests suite
+
+CI/CD:
+ - New Helm chart for Kubernetes deployment (@bodji)
+ - Debian packages hosted in a GitHub Pages API repository (@bodji)
+ - Docker tags for latest vs preview releases
+ - Build/deploy PR images from pull request comments (@bodji)
+ - Rewrite context code generator from Perl to Go
+ - 3x faster Github CI builds
+ - Client binaries uploaded to the release artifacts
+ - New makefile tagets to check vulns
+ - Upgraded all dependencies and builders
+
+Documentation:
+ - VitePress documentation web site (https://root-gg.github.io/plik/)
+ - Guides (Installation, Configuration, Docker, Kubernetes, Security)
+ - Features (CLI, Web UI, Authentication, Encryption, Streaming, MCP)
+ - Backends (Data, Metadata)
+ - References (HTTP API, Go SDK, Metrics)
+ - Architechture (all ARCHITECTURE.md files)
+ - Operations (Reverse Proxy, Server CLI, Metadata Import/Export, Cross Compilation)
+ - Helm chart README with helm-docs annotations
+
+AI:
+ - MCP server for AI assistant integration
+ - Agents friendly codebase with AGENTS.md ARCHITECTURE.md
+ - Reusable agentic workflows (code reviews, create commits/PRs, cut releases)
+
+Binaries will be built with Go 1.26.0
+
+Faithfully,
+The Plik team

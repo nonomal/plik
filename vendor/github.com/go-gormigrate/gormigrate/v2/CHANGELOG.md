@@ -5,12 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## NOTE: changelog deprecation
+  After 2.1.4, please see changes in GitHub release description.
+
 ## [Unreleased]
 
+## [2.1.4] - 2025-03-28
+### Changed
+- Update dependencies
+- Allow use of nil for options (by @ski7777 in #228)
+
+## [2.1.3] - 2024-09-23
+### Changed
+- Update dependencies
+
+## [2.1.2] - 2024-03-18
+### Added
+- Fix LastInsertId error in postgres driver (by @oxyno-zeta)
+### Changed
+- Update dependencies
+
+## [2.1.1] - 2023-09-14
+### Added
+- Add to test suite pure-go sqlite implementation: github.com/glebarez/sqlite
+### Changed
+- Update databases for ci pipelines and local development
+- Extract integration tests and their deps into different integration-test package
+- Refactor raw sql query into native Gorm method chain, for better compatibility with all dialects
 
 ## [2.1.0] - 2023-06-01
 ### Changed
-- Refactor plain sql mutation statements (create, insert, delete) into native gorm methods
+- Refactor plain sql mutation statements (create, insert, delete) into native Gorm methods
 - Update dependencies
 
 ## [2.0.3] - 2023-05-29

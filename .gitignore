@@ -1,24 +1,44 @@
-*/plik
-plikd
-clients
+# Build outputs
+/clients
+/servers
+/release
+/releases
+/debs
+server/plikd
+server/files
+client/plik
+client/client
+coverage.out
+
+# Database files (SQLite)
 *.db
 *.db-wal
 *.db-shm
-server/files
-webapp/dist
-clients
-client/client
-servers
-release
-releases
-debs
+
+# Runtime / generated config
 plikd_*.cfg
-*bower_components
-*node_modules
-*.log
+
+# TLS certificates
 *.key
 *.crt
-# IntelliJ IDEA
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+
+# Editor / IDE
 .idea
+.vscode
 plik.iml
-coverage.out
+
+# AI agent directories
+.claude/
+.gitnexus/
+
+# Test output
+test-results/
+
+# Misc
+/plans

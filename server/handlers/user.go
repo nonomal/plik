@@ -19,7 +19,6 @@ func CreateUser(ctx *context.Context, resp http.ResponseWriter, req *http.Reques
 
 	// Read request body
 	defer func() { _ = req.Body.Close() }()
-	req.Body = http.MaxBytesReader(resp, req.Body, 1048576)
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		ctx.BadRequest("unable to read request body : %s", err)
@@ -78,7 +77,6 @@ func UpdateUser(ctx *context.Context, resp http.ResponseWriter, req *http.Reques
 
 	// Read request body
 	defer func() { _ = req.Body.Close() }()
-	req.Body = http.MaxBytesReader(resp, req.Body, 1048576)
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		ctx.BadRequest("unable to read request body : %s", err)
@@ -108,7 +106,7 @@ func UpdateUser(ctx *context.Context, resp http.ResponseWriter, req *http.Reques
 			ctx.Forbidden("can't grant yourself admin right, nice try!")
 			return
 		}
-		if userParams.MaxTTL != user.MaxTTL || userParams.MaxFileSize != user.MaxFileSize {
+		if userParams.MaxTTL != user.MaxTTL || userParams.MaxFileSize != user.MaxFileSize || userParams.MaxUserSize != user.MaxUserSize {
 			ctx.Forbidden("can't edit your own quota, nice try!")
 			return
 		}

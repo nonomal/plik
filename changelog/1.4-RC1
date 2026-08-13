@@ -1,0 +1,31 @@
+Plik 1.4-RC1
+
+Hi, today we're releasing the first release candidate of the next plik major version 1.4 !
+
+Here is the changelog :
+
+New :
+ - Complete webapp rewrite using Vue 3 + Vite (replacing AngularJS)
+ - OIDC authentication provider support (generic OIDC + Keycloak) (@babs)
+ - Webapp customization: custom js/css support
+ - User preference: disable authentication button (#486)
+ - Prometheus metrics improvements
+
+Fix :
+ - MacOS server build flags
+ - Basic auth password hashing
+ - File descriptor leak
+ - S3 minimum part size
+ - Format string warnings
+ - Various typo fixes
+ - E2E test improvements and OIDC test coverage
+
+Dependency Updates :
+ - Upgraded to Go 1.26.0
+ - golang.org/x/crypto 0.45.0 (CVE fixes)
+ - Various dependency security updates
+
+Binaries will be built with Go 1.26.0
+
+Faithfully,
+The plik team

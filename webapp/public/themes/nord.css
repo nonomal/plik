@@ -1,0 +1,143 @@
+/*
+ * Plik — Nord Theme (Polar Night)
+ * Based on Arctic Ice Studio's Nord palette
+ * https://www.nordtheme.com/
+ *
+ * Every hex value below is an official Nord colour.
+ * Transparency/mix variants use color-mix() of official colours only.
+ *
+ *   Polar Night: nord0 #2e3440 · nord1 #3b4252 · nord2 #434c5e · nord3 #4c566a
+ *   Snow Storm:  nord4 #d8dee9 · nord5 #e5e9f0 · nord6 #eceff4
+ *   Frost:       nord7 #8fbcbb · nord8 #88c0d0 · nord9 #81a1c1 · nord10 #5e81ac
+ *   Aurora:      nord11 #bf616a · nord12 #d08770 · nord13 #ebcb8b · nord14 #a3be8c · nord15 #b48ead
+ */
+[data-theme="nord"] {
+    color-scheme: dark;
+
+    /* ── Surface Scale ── */
+    --color-surface-50: #eceff4;
+    /* nord6  — Snow Storm — emphasized text */
+    --color-surface-100: #e5e9f0;
+    /* nord5  — primary text */
+    --color-surface-200: #d8dee9;
+    /* nord4  — secondary text */
+    --color-surface-300: #8fbcbb;
+    /* nord7  — Frost — frozen polar water — tertiary text */
+    --color-surface-400: #81a1c1;
+    /* nord9  — Frost — arctic waters — muted text */
+    --color-surface-500: #5e81ac;
+    /* nord10 — Frost — deep arctic ocean — subtle labels */
+    --color-surface-600: #4c566a;
+    /* nord3  — Polar Night — hint text */
+    --color-surface-700: #434c5e;
+    /* nord2  — Polar Night — dividers */
+    --color-surface-800: #3b4252;
+    /* nord1  — Polar Night — elevated panels */
+    --color-surface-900: #2e3440;
+    /* nord0  — Polar Night — page background */
+    --color-surface-950: #2e3440;
+    /* nord0  — Polar Night — deepest background */
+
+    /* ── Accent (Nord Frost) ── */
+    --color-accent-400: #88c0d0;
+    /* nord8  — pure and clear ice — links, logo */
+    --color-accent-500: #81a1c1;
+    /* nord9  — arctic waters — primary buttons */
+    --color-accent-600: #5e81ac;
+    /* nord10 — deep arctic ocean — pressed accent */
+
+    /* ── Danger / Warning / Success (Nord Aurora) ── */
+    --color-danger-500: #bf616a;
+    /* nord11 — aurora red */
+    --color-danger-600: color-mix(in srgb, #bf616a 85%, #2e3440);
+    --color-warning-500: #ebcb8b;
+    /* nord13 — aurora yellow */
+    --color-success-500: #a3be8c;
+    /* nord14 — aurora green */
+    --color-success-600: color-mix(in srgb, #a3be8c 85%, #2e3440);
+
+    /* ── Semantic ── */
+    --color-on-accent: #2e3440;
+    /* nord0 */
+}
+
+/* ── Component Overrides ── */
+[data-theme="nord"] .glass-card {
+    background-color: rgba(59, 66, 82, 0.92);
+    /* nord1 transparent */
+    border-color: #434c5e;
+    /* nord2 */
+}
+
+[data-theme="nord"] .sidebar-section {
+    background-color: rgba(59, 66, 82, 0.85);
+    /* nord1 transparent */
+    border-color: #434c5e;
+    /* nord2 */
+}
+
+[data-theme="nord"] .file-row {
+    border-color: #434c5e;
+    /* nord2 */
+}
+
+[data-theme="nord"] .input-field {
+    background-color: #3b4252;
+    /* nord1 */
+    border-color: #434c5e;
+    /* nord2 */
+}
+
+/* Outlined / inverted buttons — frost border + text, transparent fill */
+[data-theme="nord"] .btn-primary {
+    background-color: transparent;
+    color: #81a1c1;
+    /* nord9 */
+    border: 1px solid rgba(129, 161, 193, 0.4);
+    /* nord9 transparent */
+    box-shadow: none;
+}
+
+[data-theme="nord"] .btn-primary:hover {
+    background-color: rgba(129, 161, 193, 0.12);
+    /* nord9 transparent */
+    border-color: rgba(129, 161, 193, 0.6);
+}
+
+[data-theme="nord"] .btn-success {
+    background-color: transparent;
+    color: #a3be8c;
+    /* nord14 */
+    border: 1px solid rgba(163, 190, 140, 0.4);
+    /* nord14 transparent */
+    box-shadow: none;
+}
+
+[data-theme="nord"] .btn-success:hover {
+    background-color: rgba(163, 190, 140, 0.12);
+    border-color: rgba(163, 190, 140, 0.6);
+}
+
+[data-theme="nord"] .btn-danger {
+    background-color: transparent;
+    color: #bf616a;
+    /* nord11 */
+    border: 1px solid rgba(191, 97, 106, 0.4);
+    /* nord11 transparent */
+    box-shadow: none;
+}
+
+[data-theme="nord"] .btn-danger:hover {
+    background-color: rgba(191, 97, 106, 0.12);
+    border-color: rgba(191, 97, 106, 0.6);
+}
+
+/* Download button — bump aurora-green fill so it pops */
+[data-theme="nord"] .bg-success-500\/10 {
+    background-color: rgba(163, 190, 140, 0.20);
+    /* nord14 at 20% */
+}
+
+[data-theme="nord"] .bg-success-500\/10:hover {
+    background-color: rgba(163, 190, 140, 0.32);
+}

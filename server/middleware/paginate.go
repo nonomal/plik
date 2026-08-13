@@ -28,6 +28,7 @@ func Paginate(ctx *context.Context, next http.Handler) http.Handler {
 				limit, err := strconv.Atoi(limitStr)
 				if err != nil {
 					ctx.InvalidParameter("limit : %s", err)
+					return
 				}
 				pagingQuery.WithLimit(limit)
 			}
@@ -50,14 +51,17 @@ func Paginate(ctx *context.Context, next http.Handler) http.Handler {
 
 		if pagingQuery.Limit != nil && *pagingQuery.Limit <= 0 {
 			ctx.InvalidParameter("limit")
+			return
 		}
 
 		if pagingQuery.Order != nil && !(*pagingQuery.Order == "asc" || *pagingQuery.Order == "desc") {
 			ctx.InvalidParameter("order")
+			return
 		}
 
 		if pagingQuery.Before != nil && pagingQuery.After != nil {
 			ctx.BadRequest("both before and after cursors set")
+			return
 		}
 
 		ctx.SetPagingQuery(pagingQuery)

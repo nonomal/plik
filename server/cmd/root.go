@@ -44,7 +44,7 @@ func init() {
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "config file (default is /etc/plikd.cfg)")
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "config file (default: ./plikd.cfg or /etc/plikd.cfg, env: PLIKD_CONFIG)")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
@@ -103,31 +103,31 @@ func initConfig() {
 // Initialize metadata backend
 var initializeMetadataBackendOnce sync.Once
 var metadataBackend *metadata.Backend
+var initMetadataBackendErr error
 
 func initializeMetadataBackend() {
-	var err error
 	initializeMetadataBackendOnce.Do(func() {
-		metadataBackend, err = server.NewMetadataBackend(config.MetadataBackendConfig, config.NewLogger())
-		if err != nil {
-			fmt.Printf("unable to initialize metadata backend : %s\n", err)
-			os.Exit(1)
-		}
+		metadataBackend, initMetadataBackendErr = server.NewMetadataBackend(config.MetadataBackendConfig, config.NewLogger())
 	})
+	if initMetadataBackendErr != nil {
+		fmt.Printf("unable to initialize metadata backend : %s\n", initMetadataBackendErr)
+		os.Exit(1)
+	}
 }
 
-// Initailze data backend
+// Initialize data backend
 var initializeDataBackendOnce sync.Once
 var dataBackend data.Backend
+var initDataBackendErr error
 
 func initializeDataBackend() {
-	var err error
 	initializeDataBackendOnce.Do(func() {
-		dataBackend, err = server.NewDataBackend(config.DataBackend, config.DataBackendConfig)
-		if err != nil {
-			fmt.Printf("unable to initialize data backend : %s\n", err)
-			os.Exit(1)
-		}
+		dataBackend, initDataBackendErr = server.NewDataBackend(config.DataBackend, config.DataBackendConfig)
 	})
+	if initDataBackendErr != nil {
+		fmt.Printf("unable to initialize data backend : %s\n", initDataBackendErr)
+		os.Exit(1)
+	}
 }
 
 func startPlikServer(cmd *cobra.Command, args []string) {
@@ -144,13 +144,14 @@ func startPlikServer(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	// Wait for shutdown signal
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		_ = plik.Shutdown(time.Minute)
-		os.Exit(0)
-	}()
+	<-c
 
-	select {}
+	err = plik.Shutdown(time.Minute)
+	if err != nil {
+		fmt.Printf("error during shutdown : %s\n", err)
+		os.Exit(1)
+	}
 }

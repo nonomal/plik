@@ -1,0 +1,166 @@
+/*
+ * Plik — Nord Light Theme (Snow Storm)
+ * Based on Arctic Ice Studio's Nord palette
+ * https://www.nordtheme.com/
+ *
+ * Every hex value below is an official Nord colour.
+ * Transparency/mix variants use color-mix() of official colours only.
+ *
+ *   Polar Night: nord0 #2e3440 · nord1 #3b4252 · nord2 #434c5e · nord3 #4c566a
+ *   Snow Storm:  nord4 #d8dee9 · nord5 #e5e9f0 · nord6 #eceff4
+ *   Frost:       nord7 #8fbcbb · nord8 #88c0d0 · nord9 #81a1c1 · nord10 #5e81ac
+ *   Aurora:      nord11 #bf616a · nord12 #d08770 · nord13 #ebcb8b · nord14 #a3be8c · nord15 #b48ead
+ */
+[data-theme="nord-light"] {
+    color-scheme: light;
+
+    /* ── Surface Scale (inverted: dark text → light background) ── */
+    --color-surface-50: #2e3440;
+    /* nord0  — emphasized headings */
+    --color-surface-100: #3b4252;
+    /* nord1  — primary text */
+    --color-surface-200: #434c5e;
+    /* nord2  — secondary text */
+    --color-surface-300: #4c566a;
+    /* nord3  — tertiary text */
+    --color-surface-400: #5e81ac;
+    /* nord10 — Frost — deep arctic ocean — muted text */
+    --color-surface-500: #81a1c1;
+    /* nord9  — Frost — arctic waters — subtle labels */
+    --color-surface-600: #8fbcbb;
+    /* nord7  — Frost — frozen polar water — hint text */
+    --color-surface-700: #d8dee9;
+    /* nord4  — Snow Storm — dividers */
+    --color-surface-800: #e5e9f0;
+    /* nord5  — Snow Storm — elevated panels */
+    --color-surface-900: #eceff4;
+    /* nord6  — Snow Storm — page background */
+    --color-surface-950: #eceff4;
+    /* nord6  — Snow Storm — deepest background */
+
+    /* ── Accent (Nord Frost) ── */
+    --color-accent-400: #5e81ac;
+    /* nord10 — links, active nav, logo */
+    --color-accent-500: #5e81ac;
+    /* nord10 — primary buttons */
+    --color-accent-600: color-mix(in srgb, #5e81ac 80%, #2e3440);
+    /* darkened nord10 — pressed accent */
+
+    /* ── Danger / Warning / Success (Nord Aurora) ── */
+    --color-danger-500: #bf616a;
+    /* nord11 */
+    --color-danger-600: color-mix(in srgb, #bf616a 85%, #2e3440);
+    --color-warning-500: #ebcb8b;
+    /* nord13 */
+    --color-success-500: #a3be8c;
+    /* nord14 */
+    --color-success-600: color-mix(in srgb, #a3be8c 85%, #2e3440);
+
+    /* ── Semantic ── */
+    --color-on-accent: #eceff4;
+    /* nord6 */
+}
+
+/* ── Component Overrides (light theme needs opaque surfaces) ── */
+[data-theme="nord-light"] .toggle-switch {
+    background-color: #81a1c1;
+    /* nord9 — frost-tinted track */
+}
+
+[data-theme="nord-light"] .toggle-switch[data-active="true"] {
+    background-color: #5e81ac;
+    /* nord10 */
+}
+
+[data-theme="nord-light"] .glass-card {
+    background-color: #e5e9f0;
+    /* nord5 */
+    border-color: #d8dee9;
+    /* nord4 */
+    box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.08);
+}
+
+[data-theme="nord-light"] .btn-primary {
+    background-color: color-mix(in srgb, #5e81ac 12%, transparent);
+    /* nord10 transparent */
+    color: #5e81ac;
+    /* nord10 */
+    box-shadow: none;
+}
+
+[data-theme="nord-light"] .btn-primary:hover {
+    background-color: color-mix(in srgb, #5e81ac 20%, transparent);
+}
+
+[data-theme="nord-light"] .btn-success {
+    background-color: color-mix(in srgb, #a3be8c 15%, transparent);
+    /* nord14 transparent */
+    color: #a3be8c;
+    /* nord14 */
+    box-shadow: none;
+}
+
+[data-theme="nord-light"] .btn-success:hover {
+    background-color: color-mix(in srgb, #a3be8c 25%, transparent);
+}
+
+[data-theme="nord-light"] .btn-danger {
+    background-color: color-mix(in srgb, #bf616a 12%, transparent);
+    /* nord11 transparent */
+    color: #bf616a;
+    /* nord11 */
+    box-shadow: none;
+}
+
+[data-theme="nord-light"] .btn-danger:hover {
+    background-color: color-mix(in srgb, #bf616a 20%, transparent);
+}
+
+[data-theme="nord-light"] .btn-ghost {
+    color: #4c566a;
+    /* nord3 */
+}
+
+[data-theme="nord-light"] .btn-ghost:hover {
+    color: #5e81ac;
+    /* nord10 */
+    background-color: color-mix(in srgb, #5e81ac 8%, transparent);
+}
+
+[data-theme="nord-light"] .sidebar-section {
+    background-color: #e5e9f0;
+    /* nord5 */
+    border-color: #d8dee9;
+    /* nord4 */
+}
+
+[data-theme="nord-light"] .file-row {
+    background-color: #e5e9f0;
+    /* nord5 */
+    border-color: #d8dee9;
+    /* nord4 */
+}
+
+[data-theme="nord-light"] .file-row:hover {
+    background-color: #eceff4;
+    /* nord6 */
+}
+
+[data-theme="nord-light"] .input-field {
+    background-color: #e5e9f0;
+    /* nord5 */
+    border-color: #d8dee9;
+    /* nord4 */
+}
+
+/* Download button — darker text + tinted fill (mirrors View button pattern) */
+[data-theme="nord-light"] .bg-success-500\/10 {
+    background-color: rgba(163, 190, 140, 0.18);
+    /* nord14 at 18% */
+    color: color-mix(in srgb, #a3be8c 65%, #2e3440);
+    /* darkened nord14 for readable text */
+}
+
+[data-theme="nord-light"] .bg-success-500\/10:hover {
+    background-color: rgba(163, 190, 140, 0.28);
+}

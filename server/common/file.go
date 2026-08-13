@@ -1,8 +1,27 @@
 package common
 
 import (
+	"strings"
 	"time"
+
+	"github.com/gabriel-vasile/mimetype"
 )
+
+// DetectMIME detects the MIME type of the given data and determines whether it
+// is text-like. A MIME type is considered text-like if it or any of its
+// ancestors in the MIME hierarchy starts with "text/" (e.g. application/json
+// inherits from text/plain).
+func DetectMIME(data []byte) (mimeType string, isText bool) {
+	detected := mimetype.Detect(data)
+	mimeType = detected.String()
+	for cur := detected; cur != nil; cur = cur.Parent() {
+		if strings.HasPrefix(cur.String(), "text/") {
+			isText = true
+			break
+		}
+	}
+	return
+}
 
 // FileMissing when a file is waiting to be uploaded
 const FileMissing = "missing"
@@ -30,6 +49,7 @@ type File struct {
 	Md5       string `json:"fileMd5"`
 	Type      string `json:"fileType"`
 	Size      int64  `json:"fileSize"`
+	IsText    bool   `json:"isText"`
 	Reference string `json:"reference"`
 
 	BackendDetails string `json:"-"`
@@ -50,7 +70,7 @@ func (file *File) GenerateID() {
 	file.ID = GenerateRandomID(16)
 }
 
-// Sanitize clear some fields to hide sensible information from the API.
+// Sanitize clear some fields to hide sensitive information from the API.
 func (file *File) Sanitize() {
 	file.BackendDetails = ""
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ErrorReader impement io.Reader and return err for every read call attempted
+// ErrorReader implement io.Reader and return err for every read call attempted
 type ErrorReader struct {
 	err error
 }
@@ -57,18 +57,21 @@ var DummyHandler = http.HandlerFunc(func(resp http.ResponseWriter, req *http.Req
 var APIMockServerDefaultPort = 44142
 
 // StartAPIMockServer starts a new temporary API Server to be used in tests
-func StartAPIMockServer(next http.Handler) (shutdown func(), err error) {
-	return StartAPIMockServerCustomPort(APIMockServerDefaultPort, next)
+// It uses an OS-assigned ephemeral port (port 0) and returns the actual port
+func StartAPIMockServer(next http.Handler) (port int, shutdown func(), err error) {
+	return StartAPIMockServerCustomPort(0, next)
 }
 
 // StartAPIMockServerCustomPort starts a new temporary API Server using a custom port
 // Adds a middleware that handle the /not_found path called by the CheckHTTPServer function
-func StartAPIMockServerCustomPort(port int, next http.Handler) (shutdown func(), err error) {
+func StartAPIMockServerCustomPort(port int, next http.Handler) (actualPort int, shutdown func(), err error) {
 	shutdown = func() {}
 	tcpListener, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
 	if err != nil {
-		return shutdown, err
+		return 0, shutdown, err
 	}
+
+	actualPort = tcpListener.Addr().(*net.TCPAddr).Port
 
 	handler := http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/not_found" {
@@ -91,12 +94,12 @@ func StartAPIMockServerCustomPort(port int, next http.Handler) (shutdown func(),
 
 	go httpServer.Serve(tcpListener)
 
-	err = CheckHTTPServer(port)
+	err = CheckHTTPServer(actualPort)
 	if err != nil {
-		return shutdown, err
+		return 0, shutdown, err
 	}
 
-	return shutdown, nil
+	return actualPort, shutdown, nil
 }
 
 var httpClient *http.Client

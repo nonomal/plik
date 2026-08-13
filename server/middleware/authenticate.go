@@ -78,7 +78,7 @@ func Authenticate(allowToken bool) context.Middleware {
 		return http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
 			config := ctx.GetConfig()
 			if config.FeatureAuthentication != common.FeatureDisabled {
-				if allowToken {
+				if allowToken && config.FeatureApiTokens != common.FeatureDisabled {
 					user, token, err := getUserFromToken(ctx)
 					if err != nil {
 						ctx.Error(err)

@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/stretchr/testify/require"
 	"io"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/root-gg/plik/server/common"
 )
@@ -29,7 +30,7 @@ func newBackend(t *testing.T) (backend *Backend, cleanup func()) {
 }
 
 func TestNewFileBackendConfig(t *testing.T) {
-	config := NewConfig(make(map[string]interface{}))
+	config := NewConfig(make(map[string]any))
 	require.NotNil(t, config, "invalid nil config")
 }
 
@@ -94,7 +95,7 @@ func TestAddFile(t *testing.T) {
 
 	read, err := io.ReadAll(fh)
 	require.NoError(t, err, "unable to read file")
-	require.Equal(t, "data", string(read), "inavlid file content")
+	require.Equal(t, "data", string(read), "invalid file content")
 }
 
 func TestGetFileInvalidDirectory(t *testing.T) {
@@ -142,7 +143,7 @@ func TestGetFile(t *testing.T) {
 
 	read, err := io.ReadAll(fileReader)
 	require.NoError(t, err, "unable to read file")
-	require.Equal(t, "data", string(read), "inavlid file content")
+	require.Equal(t, "data", string(read), "invalid file content")
 }
 
 func TestGetFileCompathPath(t *testing.T) {
@@ -174,7 +175,7 @@ func TestGetFileCompathPath(t *testing.T) {
 
 	read, err := io.ReadAll(fileReader)
 	require.NoError(t, err, "unable to read file")
-	require.Equal(t, "data", string(read), "inavlid file content")
+	require.Equal(t, "data", string(read), "invalid file content")
 }
 
 func TestRemoveFileInvalidDirectory(t *testing.T) {
@@ -262,7 +263,7 @@ func TestRemoveFileTwice(t *testing.T) {
 
 	read, err := io.ReadAll(fh)
 	require.NoError(t, err, "unable to read file")
-	require.Equal(t, "data", string(read), "inavlid file content")
+	require.Equal(t, "data", string(read), "invalid file content")
 
 	err = backend.RemoveFile(file)
 	require.NoError(t, err, "unable to remove file")
@@ -303,7 +304,7 @@ func TestRemoveFileCompatPath(t *testing.T) {
 
 	read, err := io.ReadAll(fh)
 	require.NoError(t, err, "unable to read file")
-	require.Equal(t, "data", string(read), "inavlid file content")
+	require.Equal(t, "data", string(read), "invalid file content")
 
 	err = backend.RemoveFile(file)
 	require.NoError(t, err, "unable to remove file")

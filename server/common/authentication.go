@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 	uuid "github.com/nu7hatch/gouuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -37,18 +37,19 @@ type SessionAuthenticator struct {
 // GenAuthCookies generate a sign a jwt session cookie to authenticate a user
 func (sa *SessionAuthenticator) GenAuthCookies(user *User) (sessionCookie *http.Cookie, xsrfCookie *http.Cookie, err error) {
 	// Generate session jwt
-	session := jwt.New(jwt.SigningMethodHS512)
-	session.Claims.(jwt.MapClaims)["uid"] = user.ID
-
-	// Generate xsrf token
+	// Generate xsrfToken first
 	xsrfToken, err := uuid.NewV4()
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to generate xsrf token")
 	}
-	session.Claims.(jwt.MapClaims)["xsrf"] = xsrfToken.String()
 
-	// Session cookie creation date
-	session.Claims.(jwt.MapClaims)["created_at"] = strconv.FormatInt(time.Now().Unix(), 10)
+	// Create JWT claims
+	claims := jwt.MapClaims{
+		"uid":        user.ID,
+		"xsrf":       xsrfToken.String(),
+		"created_at": strconv.FormatInt(time.Now().Unix(), 10),
+	}
+	session := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
 
 	sessionString, err := session.SignedString([]byte(sa.SignatureKey))
 	if err != nil {
@@ -58,6 +59,7 @@ func (sa *SessionAuthenticator) GenAuthCookies(user *User) (sessionCookie *http.
 	// Store session jwt in secure cookie
 	sessionCookie = &http.Cookie{}
 	sessionCookie.HttpOnly = true
+	sessionCookie.SameSite = http.SameSiteLaxMode
 	sessionCookie.Name = SessionCookieName
 	sessionCookie.Value = sessionString
 	sessionCookie.MaxAge = sa.SessionTimeout
@@ -66,6 +68,7 @@ func (sa *SessionAuthenticator) GenAuthCookies(user *User) (sessionCookie *http.
 	// Store xsrf token cookie
 	xsrfCookie = &http.Cookie{}
 	xsrfCookie.HttpOnly = false
+	xsrfCookie.SameSite = http.SameSiteLaxMode
 	xsrfCookie.Name = XSRFCookieName
 	xsrfCookie.Value = xsrfToken.String()
 	xsrfCookie.MaxAge = sa.SessionTimeout
@@ -81,10 +84,10 @@ func (sa *SessionAuthenticator) GenAuthCookies(user *User) (sessionCookie *http.
 
 // ParseSessionCookie parse and validate the session cookie
 func (sa *SessionAuthenticator) ParseSessionCookie(value string) (uid string, xsrf string, err error) {
-	session, err := jwt.Parse(value, func(t *jwt.Token) (interface{}, error) {
+	session, err := jwt.Parse(value, func(t *jwt.Token) (any, error) {
 		// Verify signing algorithm
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected siging method : %v", t.Header["alg"])
+			return nil, fmt.Errorf("unexpected signing method : %v", t.Header["alg"])
 		}
 
 		return []byte(sa.SignatureKey), nil
@@ -108,7 +111,7 @@ func (sa *SessionAuthenticator) ParseSessionCookie(value string) (uid string, xs
 	xsrfValue, ok := session.Claims.(jwt.MapClaims)["xsrf"]
 	if ok {
 		xsrf, ok = xsrfValue.(string)
-		if !ok || uid == "" {
+		if !ok || xsrf == "" {
 			return "", "", fmt.Errorf("invalid xsrf token from session cookie")
 		}
 	} else {
@@ -121,7 +124,7 @@ func (sa *SessionAuthenticator) ParseSessionCookie(value string) (uid string, xs
 	createdAtValue, ok := session.Claims.(jwt.MapClaims)["created_at"]
 	if ok {
 		createdAtStrValue, ok := createdAtValue.(string)
-		if !ok || createdAtValue == "" {
+		if !ok || createdAtStrValue == "" {
 			return "", "", fmt.Errorf("invalid creation date from session cookie")
 		}
 		createdAt, err := strconv.ParseInt(createdAtStrValue, 10, 64)
@@ -150,6 +153,7 @@ func (sa *SessionAuthenticator) Logout() (sessionCookie *http.Cookie, xsrfCookie
 	// Delete session cookie
 	sessionCookie = &http.Cookie{}
 	sessionCookie.HttpOnly = true
+	sessionCookie.SameSite = http.SameSiteLaxMode
 	sessionCookie.Name = SessionCookieName
 	sessionCookie.Value = ""
 	sessionCookie.MaxAge = -1
@@ -158,6 +162,7 @@ func (sa *SessionAuthenticator) Logout() (sessionCookie *http.Cookie, xsrfCookie
 	// Store xsrf token cookie
 	xsrfCookie = &http.Cookie{}
 	xsrfCookie.HttpOnly = false
+	xsrfCookie.SameSite = http.SameSiteLaxMode
 	xsrfCookie.Name = XSRFCookieName
 	xsrfCookie.Value = ""
 	xsrfCookie.MaxAge = -1
@@ -173,6 +178,9 @@ func (sa *SessionAuthenticator) Logout() (sessionCookie *http.Cookie, xsrfCookie
 
 // HashPassword return bcrypt password hash ( with salt )
 func HashPassword(password string) (string, error) {
+	if len(password) > 72 {
+		return "", fmt.Errorf("password is too long, maximum 72 bytes")
+	}
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
 	return string(bytes), err
 }

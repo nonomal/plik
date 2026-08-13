@@ -33,7 +33,7 @@ type Config struct {
 
 // NewConfig instantiate a new default configuration
 // and override it with configuration passed as argument
-func NewConfig(params map[string]interface{}) (config *Config) {
+func NewConfig(params map[string]any) (config *Config) {
 	config = new(Config)
 	config.Driver = "sqlite3"
 	config.ConnectionString = "plik.db"
@@ -138,7 +138,7 @@ func NewBackend(config *Config, log *logger.Logger) (b *Backend, err error) {
 
 	// For testing
 	if config.EraseFirst {
-		err = b.db.Migrator().DropTable("files", "uploads", "tokens", "users", "settings", "migrations")
+		err = b.db.Migrator().DropTable("files", "uploads", "tokens", "users", "settings", "cli_auth_sessions", "migrations")
 		if err != nil {
 			return nil, fmt.Errorf("unable to drop tables : %s", err)
 		}
@@ -180,6 +180,7 @@ func (b *Backend) initializeSchema() (err error) {
 				&common.User{},
 				&common.Token{},
 				&common.Setting{},
+				&common.CLIAuthSession{},
 			)
 
 			return err

@@ -1,78 +1,87 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"io"
-	"math/rand"
 	"os"
 	"runtime"
-	"time"
 
 	"github.com/docopt/docopt-go"
-	"github.com/olekukonko/ts"
-	"github.com/root-gg/utils"
 
-	"github.com/root-gg/plik/client/archive"
-	"github.com/root-gg/plik/client/crypto"
-	"github.com/root-gg/plik/plik"
 	"github.com/root-gg/plik/server/common"
 )
 
-// Vars
-var arguments map[string]interface{}
-var config *CliConfig
-var archiveBackend archive.Backend
-var cryptoBackend crypto.Backend
-
-var err error
-
 // Main
 func main() {
-	rand.Seed(time.Now().UTC().UnixNano())
-	runtime.GOMAXPROCS(runtime.NumCPU())
-	ts.GetSize() // ?
 
 	// Usage /!\ INDENT THIS WITH SPACES NOT TABS /!\
-	usage := `plik
+	usage := `plik — temporary file sharing
 
 Usage:
   plik [options] [FILE] ...
 
-Options:
-  -o, --oneshot             Enable OneShot ( Each file will be deleted on first download )
-  -r, --removable           Enable Removable upload ( Each file can be deleted by anyone at any moment )
-  -S, --stream              Enable Streaming ( It will block until remote user starts downloading )
-  -t, --ttl TTL             Time before expiration (Upload will be removed in m|h|d)
-  --extend-ttl              Extend upload expiration date by TTL when accessed
-  -n, --name NAME           Set file name when piping from STDIN
-  --stdin                   Enable pipe from stdin explicitly when DisableStdin is set in .plikrc
-  --server SERVER           Overrides server url
-  --token TOKEN             Specify an upload token ( if '-' prompt for value )
-  --comments COMMENT        Set comments of the upload ( MarkDown compatible )
-  -p                        Protect the upload with login and password ( be prompted )
-  --password PASSWD         Protect the upload with "login:password" ( if omitted default login is "plik" )
-  -a                        Archive upload using default archive params ( see ~/.plikrc )
-  --archive MODE            Archive upload using the specified archive backend : tar|zip
-  --compress MODE           [tar] Compression codec : gzip|bzip2|xz|lzip|lzma|lzop|compress|no
-  --archive-options OPTIONS [tar|zip] Additional command line options
-  -s                        Encrypt upload using the default encryption parameters ( see ~/.plikrc )
-  --not-secure              Do not encrypt upload files regardless of the ~/.plikrc configurations
-  --secure MODE             Encrypt upload files using the specified crypto backend : openssl|pgp
-  --cipher CIPHER           [openssl] Openssl cipher to use ( see openssl help )
-  --passphrase PASSPHRASE   [openssl] Passphrase or '-' to be prompted for a passphrase
-  --recipient RECIPIENT     [pgp] Set recipient for pgp backend ( example : --recipient Bob )
+Profile Options:
+  -P, --profile PROFILES    Use named profiles from ~/.plikrc (comma-separated for composition)
+
+Upload Options:
+  -o, --oneshot             Delete each file after first download
+  -r, --removable           Allow anyone to delete uploaded files
+  -S, --stream              Stream upload (blocks until receiver downloads)
+  -t, --ttl TTL             Time before expiration (e.g. 30m, 24h, 7d)
+  --extend-ttl              Extend expiration on each download
+  -p                        Prompt for upload login and password
+  --password PASSWD         Protect upload with login:password (default login: "plik")
+  --comments COMMENT        Set upload comments (Markdown)
+  -n, --name NAME           Set filename when piping from STDIN
+
+Server Options:
+  --server SERVER           Override server URL
+  --token TOKEN             Set upload token (use '-' to prompt)
+  --insecure                Skip TLS certificate verification
+
+Archive Options:
+  -a                        Archive files using default settings from ~/.plikrc
+  --archive MODE            Archive files with specified backend (tar | zip)
+  --compress MODE           [tar] Compression codec (gzip|bzip2|xz|lzip|lzma|lzop|no)
+  --archive-options OPTIONS Additional command line options passed to archiver
+
+Encryption Options:
+  -s                        Encrypt files using default settings from ~/.plikrc
+  --not-secure              Disable encryption even if enabled in ~/.plikrc
+  --secure MODE             Encrypt files with backend (age | openssl | pgp, default: age)
+  --passphrase PASSPHRASE   [age|openssl] Encryption passphrase (use '-' to prompt)
+  --recipient RECIPIENT     [age] @github_user, ssh://host, URL, key, or age1...
+                            [pgp] Recipient name or email
+  --cipher CIPHER           [openssl] Cipher algorithm (default: aes-256-cbc)
   --secure-options OPTIONS  [openssl|pgp] Additional command line options
-  --insecure                (TLS) Do not verify the server's certificate chain and hostname
-  --update                  Update client
-  -q --quiet                Enable quiet mode
-  -d --debug                Enable debug mode
-  -v --version              Show client version
-  -i --info                 Show client and server information
-  -h --help                 Show this help
+
+Output Options:
+  -q, --quiet               Suppress progress and non-essential output
+  -j, --json                Output upload metadata as JSON (implies --quiet)
+  -d, --debug               Enable debug mode
+
+General Options:
+  --login                   Authenticate with server (opens browser)
+  --update                  Update client binary from server
+  --update-plikrc           Rewrite ~/.plikrc in canonical format
+  --mcp                     Start MCP (Model Context Protocol) server over stdio
+  --stdin                   Read from STDIN even when DisableStdin is set
+  -y, --yes                 Auto-accept confirmation prompts
+  -v, --version             Show client version
+  -i, --info                Show client and server information
+  -h, --help                Show this help
+
+Examples:
+  plik file.txt                       Upload a single file
+  plik -o file1.txt file2.txt         Upload files, delete after first download
+  plik -t 1h *.log                    Upload with 1 hour expiration
+  plik -s secret.pdf                  Encrypt with age (passphrase auto-generated)
+  plik -a src/                        Archive and upload a directory
+  plik -P work report.pdf             Upload using the "work" profile
+  plik -P work,zip report.pdf         Compose profiles (work server + zip archive)
+  cat data.csv | plik -n data.csv     Pipe from STDIN
 `
 	// Parse command line arguments
-	arguments, _ = docopt.ParseDoc(usage)
+	arguments, _ := docopt.ParseDoc(usage)
 
 	if arguments["--version"].(bool) {
 		fmt.Printf("Plik client %s\n", common.GetBuildInfo())
@@ -80,7 +89,7 @@ Options:
 	}
 
 	// Load config
-	config, err = LoadConfig(arguments)
+	config, err := LoadConfig(arguments)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to load configuration : %s\n", err)
 		os.Exit(1)
@@ -93,25 +102,28 @@ Options:
 		os.Exit(1)
 	}
 
-	if config.Debug {
-		fmt.Println("Arguments : ")
-		utils.Dump(arguments)
-		fmt.Println("Configuration : ")
-		utils.Dump(config)
+	// MCP server mode
+	if arguments["--mcp"].(bool) {
+		err = RunMCPServer(config)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "MCP server error: %s\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 
-	client := plik.NewClient(config.URL)
-	client.Debug = config.Debug
-	client.ClientName = "plik_cli"
+	cli := NewPlikCLI(config, arguments)
 
-	// Insecure TLS mode
-	if config.Insecure || arguments["--insecure"].(bool) {
+	client := config.NewClient("plik_cli")
+
+	// --insecure CLI flag (additive to config.Insecure handled in NewClient)
+	if arguments["--insecure"].(bool) {
 		client.Insecure()
 	}
 
 	// Display info
 	if arguments["--info"].(bool) {
-		err = info(client)
+		err = cli.info(client)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
@@ -121,7 +133,7 @@ Options:
 
 	// Update
 	updateFlag := arguments["--update"].(bool)
-	err = update(client, updateFlag)
+	err = cli.update(client, updateFlag)
 	if err == nil {
 		if updateFlag {
 			os.Exit(0)
@@ -132,6 +144,38 @@ Options:
 		if updateFlag {
 			os.Exit(1)
 		}
+	}
+
+	// Login
+	if arguments["--login"].(bool) {
+		if arguments["--server"] != nil && arguments["--server"].(string) != "" {
+			fmt.Fprintf(os.Stderr, "Cannot use --login with --server: the login flow saves the token to ~/.plikrc and must use the server URL configured there.\n")
+			os.Exit(1)
+		}
+		// --login requires a single profile: it saves a token to one profile section
+		if _, err := config.SingleProfile(); err != nil {
+			fmt.Fprintf(os.Stderr, "Cannot use --login with multiple profiles: %s\n", err)
+			os.Exit(1)
+		}
+		if len(config.ActiveProfiles) == 1 {
+			fmt.Fprintf(os.Stderr, "Authenticating profile %q (%s)...\n", config.ActiveProfiles[0], config.URL)
+		}
+		err = login(config, client)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Login failed: %s\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// Rewrite ~/.plikrc in canonical format
+	if arguments["--update-plikrc"].(bool) {
+		err = updatePlikrc(config)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "--update-plikrc: %s\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 
 	// Detect STDIN type
@@ -151,235 +195,10 @@ Options:
 		}
 	}
 
-	upload := client.NewUpload()
-	upload.Token = config.Token
-	upload.TTL = config.TTL
-	upload.ExtendTTL = config.ExtendTTL
-	upload.Stream = config.Stream
-	upload.OneShot = config.OneShot
-	upload.Removable = config.Removable
-	upload.Comments = config.Comments
-	upload.Login = config.Login
-	upload.Password = config.Password
-
-	if len(config.filePaths) == 0 {
-		if config.DisableStdin {
-			fmt.Fprintf(os.Stderr, "Stdin is disabled by default. Use the --stdin flag to override\n")
-			os.Exit(1)
-		}
-		upload.AddFileFromReader("STDIN", bufio.NewReader(os.Stdin))
-	} else {
-		if config.Archive {
-			archiveBackend, err = archive.NewArchiveBackend(config.ArchiveMethod, config.ArchiveOptions)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Unable to initialize archive backend : %s\n", err)
-				os.Exit(1)
-			}
-
-			err = archiveBackend.Configure(arguments)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Unable to configure archive backend : %s\n", err)
-				os.Exit(1)
-			}
-
-			reader, err := archiveBackend.Archive(config.filePaths)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Unable to create archive : %s\n", err)
-				os.Exit(1)
-			}
-
-			filename := archiveBackend.GetFileName(config.filePaths)
-			upload.AddFileFromReader(filename, reader)
-		} else {
-			for _, path := range config.filePaths {
-				_, err := upload.AddFileFromPath(path)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "%s : %s\n", path, err)
-					os.Exit(1)
-				}
-			}
-		}
-	}
-
-	if config.filenameOverride != "" {
-		if len(upload.Files()) != 1 {
-			fmt.Fprintf(os.Stderr, "Can't override filename if more than one file to upload\n")
-			os.Exit(1)
-		}
-		upload.Files()[0].Name = config.filenameOverride
-	}
-
-	// Initialize crypto backend
-	if config.Secure {
-		cryptoBackend, err = crypto.NewCryptoBackend(config.SecureMethod, config.SecureOptions)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Unable to initialize crypto backend : %s", err)
-			os.Exit(1)
-		}
-		err = cryptoBackend.Configure(arguments)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Unable to configure crypto backend : %s", err)
-			os.Exit(1)
-		}
-	}
-
-	// Initialize progress bar display
-	var progress *Progress
-	if !config.Quiet && !config.Debug {
-		progress = NewProgress(upload.Files())
-	}
-
-	// Add files to upload
-	for _, file := range upload.Files() {
-		if config.Secure {
-			file.WrapReader(func(fileReader io.ReadCloser) io.ReadCloser {
-				reader, err := cryptoBackend.Encrypt(fileReader)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Unable to encrypt file :%s", err)
-					os.Exit(1)
-				}
-				return io.NopCloser(reader)
-			})
-		}
-
-		if !config.Quiet && !config.Debug {
-			progress.register(file)
-		}
-	}
-
-	// Create upload on server
-	err = upload.Create()
+	// Run the main upload flow
+	err = cli.Run(client)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to create upload : %s\n", err)
+		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(1)
-	}
-
-	// Mon, 02 Jan 2006 15:04:05 MST
-	creationDate := upload.Metadata().CreatedAt.Format(time.RFC1123)
-
-	// Display upload url
-	printf("Upload successfully created at %s : \n", creationDate)
-
-	uploadURL, err := upload.GetURL()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to get upload url %s\n", err)
-		os.Exit(1)
-	}
-
-	printf("    %s\n\n", uploadURL)
-
-	if config.Stream && !config.Debug {
-		for _, file := range upload.Files() {
-			cmd, err := getFileCommand(file)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Unable to get download command for file %s : %s\n", file.Name, err)
-			}
-			fmt.Println(cmd)
-		}
-		printf("\n")
-	}
-
-	if !config.Quiet && !config.Debug {
-		// Nothing should be printed between this an progress.Stop()
-		progress.start()
-	}
-
-	// Upload files
-	_ = upload.Upload()
-
-	if !config.Quiet && !config.Debug {
-		// Finalize the progress bar display
-		progress.stop()
-	}
-
-	// Display download commands
-	if !config.Stream {
-		printf("\nCommands : \n")
-		for _, file := range upload.Files() {
-			// Print file information (only url if quiet mode is enabled)
-			if file.Error() != nil {
-				continue
-			}
-			if config.Quiet {
-				URL, err := file.GetURL()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Unable to get download command for file %s : %s\n", file.Name, err)
-				}
-				fmt.Println(URL)
-			} else {
-				cmd, err := getFileCommand(file)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Unable to get download command for file %s : %s\n", file.Name, err)
-				}
-				fmt.Println(cmd)
-			}
-		}
-	} else {
-		printf("\n")
-	}
-}
-
-func info(client *plik.Client) (err error) {
-	fmt.Printf("Plik client version : %s\n\n", common.GetBuildInfo())
-
-	fmt.Printf("Plik server url : %s\n", config.URL)
-
-	serverBuildInfo, err := client.GetServerVersion()
-	if err != nil {
-		return fmt.Errorf("Plik server unreachable : %s", err)
-	}
-
-	fmt.Printf("Plik server version : %s\n", serverBuildInfo)
-
-	serverConfig, err := client.GetServerConfig()
-	if err != nil {
-		return fmt.Errorf("Plik server unreachable : %s", err)
-	}
-
-	fmt.Printf("\nPlik server configuration :\n")
-	fmt.Printf("%s", serverConfig.String())
-
-	return nil
-}
-
-func getFileCommand(file *plik.File) (command string, err error) {
-	// Step one - Downloading file
-	switch config.DownloadBinary {
-	case "wget":
-		command += "wget -q -O-"
-	case "curl":
-		command += "curl -s"
-	default:
-		command += config.DownloadBinary
-	}
-
-	URL, err := file.GetURL()
-	if err != nil {
-		return "", err
-	}
-	command += fmt.Sprintf(` "%s"`, URL)
-
-	// If Ssl
-	if config.Secure {
-		command += fmt.Sprintf(" | %s", cryptoBackend.Comments())
-	}
-
-	// If archive
-	if config.Archive {
-		if config.ArchiveMethod == "zip" {
-			command += fmt.Sprintf(` > '%s'`, file.Name)
-		} else {
-			command += fmt.Sprintf(" | %s", archiveBackend.Comments())
-		}
-	} else {
-		command += fmt.Sprintf(` > '%s'`, file.Name)
-	}
-
-	return
-}
-
-func printf(format string, args ...interface{}) {
-	if !config.Quiet {
-		fmt.Printf(format, args...)
 	}
 }

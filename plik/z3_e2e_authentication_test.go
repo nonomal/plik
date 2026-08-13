@@ -30,7 +30,7 @@ func TestTokenAuthentication(t *testing.T) {
 	user := common.NewUser("ovh", "gg1-ovh")
 	t1 := user.NewToken()
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start Plik server")
 
 	err = ps.GetMetadataBackend().CreateUser(user)
@@ -58,7 +58,7 @@ func TestTokenMultipleToken(t *testing.T) {
 
 	ps.GetConfig().FeatureAuthentication = common.FeatureForced
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start Plik server")
 
 	user := common.NewUser("ovh", "gg2-ovh")
@@ -116,7 +116,7 @@ func TestTokenMultipleTokenAdmin(t *testing.T) {
 	uid := "ovh:gg3-ovh"
 	ps.GetConfig().FeatureAuthentication = common.FeatureForced
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start Plik server")
 
 	user := common.NewUser("ovh", "gg1-ovh")
@@ -168,7 +168,7 @@ func TestPasswordAuthentication(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start Plik server")
 
 	login := "plik"
@@ -208,7 +208,7 @@ func TestPasswordAuthenticationInClient(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start Plik server")
 
 	login := "plik"

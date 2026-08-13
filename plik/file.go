@@ -87,6 +87,23 @@ func (file *File) Metadata() (details *common.File) {
 	return file.metadata
 }
 
+// FileWithURL is a JSON-serializable representation of a file with a pre-computed download URL.
+// It is used for --json output and MCP server responses.
+type FileWithURL struct {
+	*common.File
+	URL string `json:"url"`
+}
+
+// WithURL returns the file metadata enriched with its download URL
+func (file *File) WithURL() *FileWithURL {
+	result := &FileWithURL{File: file.Metadata()}
+	u, err := file.GetURL()
+	if err == nil {
+		result.URL = u.String()
+	}
+	return result
+}
+
 // getParams return a common.File to be passed to internal methods
 func (file *File) getParams() (params *common.File) {
 	file.lock.Lock()
@@ -94,6 +111,7 @@ func (file *File) getParams() (params *common.File) {
 
 	params = &common.File{}
 	params.Name = file.Name
+	params.Size = file.Size
 
 	if file.metadata != nil {
 		params.ID = file.metadata.ID
@@ -102,7 +120,7 @@ func (file *File) getParams() (params *common.File) {
 	return params
 }
 
-// ID return the file ID if any
+// Error returns the file upload error, if any
 func (file *File) Error() error {
 	file.lock.Lock()
 	defer file.lock.Unlock()
@@ -129,7 +147,6 @@ func (file *File) ready() (done chan struct{}, abort bool) {
 	}
 
 	// File does not need to be uploaded
-	// TODO : maybe it would be better/simpler to rely only on file.reader == nil ?
 	if file.metadata.Status != common.FileMissing || file.reader == nil {
 		return nil, true
 	}
@@ -206,13 +223,19 @@ func (file *File) GetURL() (URL *url.URL, err error) {
 	}
 
 	var domain string
-	if uploadMetadata.DownloadDomain != "" {
+	if uploadMetadata.DownloadURL != "" {
+		// DownloadURL is set when PlikDomain or DownloadDomain is configured (servers >= 1.4.2).
+		// Includes DownloadDomain+Path when a download domain is set, otherwise PlikDomain+Path.
+		domain = uploadMetadata.DownloadURL
+	} else if uploadMetadata.DownloadDomain != "" {
+		// Backward compat: pre-1.4.2 servers, or servers with no domain configured.
+		// DownloadDomain does not include the Path prefix.
 		domain = uploadMetadata.DownloadDomain
 	} else {
 		domain = file.upload.client.URL
 	}
 
-	fileURL := fmt.Sprintf("%s/%s/%s/%s/%s", domain, mode, uploadMetadata.ID, fileMetadata.ID, fileMetadata.Name)
+	fileURL := fmt.Sprintf("%s/%s/%s/%s/%s", domain, mode, uploadMetadata.ID, fileMetadata.ID, url.PathEscape(fileMetadata.Name))
 
 	// Parse to get a nice escaped url
 	return url.Parse(fileURL)

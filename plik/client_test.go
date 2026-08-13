@@ -16,7 +16,7 @@ func TestGetServerVersion(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	bi, err := pc.GetServerVersion()
@@ -29,7 +29,7 @@ func TestGetServerConfig(t *testing.T) {
 	defer shutdown(ps)
 
 	ps.GetConfig().DownloadDomain = "test test test"
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	config, err := pc.GetServerConfig()
@@ -44,7 +44,7 @@ func TestDefaultUploadParams(t *testing.T) {
 
 	pc.OneShot = true
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload := pc.NewUpload()
@@ -67,7 +67,7 @@ func TestUploadParamsOverride(t *testing.T) {
 
 	pc.OneShot = true
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload := pc.NewUpload()
@@ -88,7 +88,7 @@ func TestCreateAndGetUpload(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload := pc.NewUpload()
@@ -109,7 +109,7 @@ func TestAddFileToExistingUpload(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload := pc.NewUpload()
@@ -128,7 +128,7 @@ func TestAddFileToExistingUpload2(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload, _, err := pc.UploadReader("file 1", bytes.NewBufferString("data"))
@@ -156,7 +156,7 @@ func TestUploadReader(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	data := "data data data"
@@ -175,7 +175,7 @@ func TestUploadReadCloser(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	data := "data data data"
@@ -194,7 +194,7 @@ func TestUploadFiles(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	tmpFile, err := os.CreateTemp("", "pliktmpfile")
@@ -209,7 +209,7 @@ func TestUploadFiles(t *testing.T) {
 
 	tmpFile2, err := os.CreateTemp("", "pliktmpfile")
 	require.NoError(t, err, "unable to create tmp file")
-	defer os.Remove(tmpFile.Name())
+	defer os.Remove(tmpFile2.Name())
 
 	_, err = tmpFile2.Write([]byte(data))
 	require.NoError(t, err, "unable to write tmp file")
@@ -226,10 +226,10 @@ func TestUploadFiles(t *testing.T) {
 
 	err = upload.Upload()
 	require.NoError(t, err, "unable to upload file")
-	require.Len(t, upload.Metadata().Files, 0, "invalid file count")
+	require.Len(t, upload.Files(), 2, "invalid file count")
 
-	for _, file := range upload.Metadata().Files {
-		reader, err := pc.downloadFile(upload.Metadata(), file)
+	for _, file := range upload.Files() {
+		reader, err := file.Download()
 		require.NoError(t, err, "unable to download file")
 		content, err := io.ReadAll(reader)
 		require.NoError(t, err, "unable to read file")
@@ -241,7 +241,7 @@ func TestUploadMultipleFiles(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload := pc.NewUpload()
@@ -270,7 +270,7 @@ func TestCreateAndGetUploadFiles(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload := pc.NewUpload()
@@ -304,7 +304,7 @@ func TestUploadFile(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	_, _, err = pc.UploadFile("missing_file_name")
@@ -327,7 +327,7 @@ func TestRemoveFile(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	data := "data data data"
@@ -349,7 +349,7 @@ func TestRemoveFileNotFound(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload := &common.Upload{}
@@ -376,7 +376,7 @@ func TestDeleteUpload(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	data := "data data data"
@@ -401,7 +401,7 @@ func TestDeleteUploadNotFound(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload := &common.Upload{}
@@ -432,7 +432,7 @@ func TestDownloadArchive(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	data := "data data data"
@@ -454,7 +454,7 @@ func TestGetArchiveNotFound(t *testing.T) {
 	ps, pc := newPlikServerAndClient()
 	defer shutdown(ps)
 
-	err := start(ps)
+	err := startWithClient(ps, pc)
 	require.NoError(t, err, "unable to start plik server")
 
 	upload := &common.Upload{}

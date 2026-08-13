@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/dustin/go-humanize"
 	"github.com/root-gg/utils"
 	"github.com/spf13/cobra"
-	"os"
 
 	"github.com/root-gg/plik/server/common"
 	"github.com/root-gg/plik/server/server"
@@ -35,42 +36,52 @@ var userCmd = &cobra.Command{
 var createUserCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create user",
-	Run:   createUser,
+	Example: `  plikd user create --login admin --password s3cret123 --admin
+  plikd user create --provider google --login user@gmail.com --name "John Doe"
+  plikd user create --login bob --max-file-size 100MB --max-ttl 7d`,
+	Run: createUser,
 }
 
 // listUsersCmd represents the "user list" command
 var listUsersCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List users",
-	Run:   listUsers,
+	Use:     "list",
+	Short:   "List users",
+	Example: `  plikd user list`,
+	Run:     listUsers,
 }
 
 // showUserCmd represents the "user show" command
 var showUserCmd = &cobra.Command{
 	Use:   "show",
 	Short: "Show user info",
-	Run:   showUser,
+	Example: `  plikd user show --login admin
+  plikd user show --provider google --login user@gmail.com`,
+	Run: showUser,
 }
 
 // updateUserCmd represents the "user update" command
 var updateUserCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update user info",
-	Run:   updateUser,
+	Example: `  plikd user update --login admin --admin
+  plikd user update --login bob --max-file-size 500MB --max-ttl 14d`,
+	Run: updateUser,
 }
 
 // deleteUserCmd represents the "user delete" command
 var deleteUserCmd = &cobra.Command{
 	Use:   "delete",
 	Short: "Delete user",
-	Run:   deleteUser,
+	Example: `  plikd user delete --login admin
+  plikd user delete --provider google --login user@gmail.com`,
+	Run: deleteUser,
 }
 
 func init() {
 	rootCmd.AddCommand(userCmd)
 
 	// Here you will define your flags and configuration settings.
-	userCmd.PersistentFlags().StringVar(&userParams.provider, "provider", common.ProviderLocal, "user provider [local|google|ovh]")
+	userCmd.PersistentFlags().StringVar(&userParams.provider, "provider", common.ProviderLocal, "user provider [local|google|github|ovh|oidc]")
 	userCmd.PersistentFlags().StringVar(&userParams.login, "login", "", "user login")
 
 	userCmd.AddCommand(createUserCmd)
@@ -94,6 +105,47 @@ func init() {
 	userCmd.AddCommand(listUsersCmd)
 	userCmd.AddCommand(showUserCmd)
 	userCmd.AddCommand(deleteUserCmd)
+}
+
+// userNotFoundError returns the message shown when a user lookup fails.
+// OIDC users are keyed by the sub claim, not by their displayed login,
+// so hint at how to find the right identifier.
+func userNotFoundError(provider string, userID string) string {
+	msg := fmt.Sprintf("User %s not found", userID)
+	if provider == common.ProviderOIDC {
+		msg += "\nOIDC users are identified by their 'sub' claim : run 'plikd user list' and pass the ID part after 'oidc:' as --login"
+	}
+	return msg
+}
+
+// parseMaxSize parses a human-readable byte size flag value.
+// Returns -1 for unlimited, 0 for unset, or the parsed byte count.
+func parseMaxSize(flagName string, s string) int64 {
+	if s == "-1" {
+		return -1
+	}
+	if s != "" {
+		v, err := humanize.ParseBytes(s)
+		if err != nil {
+			fmt.Printf("Unable to parse %s\n", flagName)
+			os.Exit(1)
+		}
+		return int64(v)
+	}
+	return 0
+}
+
+// parseMaxTTL parses the --max-ttl flag value.
+func parseMaxTTL(s string) int {
+	if s != "" {
+		v, err := common.ParseTTL(s)
+		if err != nil {
+			fmt.Printf("Unable to parse max-ttl : %s\n", err)
+			os.Exit(1)
+		}
+		return v
+	}
+	return 0
 }
 
 func createUser(cmd *cobra.Command, args []string) {
@@ -128,42 +180,14 @@ func createUser(cmd *cobra.Command, args []string) {
 
 	// Create user
 	params := &common.User{
-		Provider: userParams.provider,
-		Login:    userParams.login,
-		Name:     userParams.name,
-		Email:    userParams.email,
-		IsAdmin:  userParams.admin,
-	}
-
-	if userParams.maxFileSize == "-1" {
-		params.MaxFileSize = -1
-	} else if userParams.maxFileSize != "" {
-		maxFileSize, err := humanize.ParseBytes(userParams.maxFileSize)
-		if err != nil {
-			fmt.Printf("Unable to parse max-file-size\n")
-			os.Exit(1)
-		}
-		params.MaxFileSize = int64(maxFileSize)
-	}
-
-	if userParams.maxUserSize == "-1" {
-		params.MaxUserSize = -1
-	} else if userParams.maxUserSize != "" {
-		maxUserSize, err := humanize.ParseBytes(userParams.maxUserSize)
-		if err != nil {
-			fmt.Printf("Unable to parse max-user-size\n")
-			os.Exit(1)
-		}
-		params.MaxUserSize = int64(maxUserSize)
-	}
-
-	if userParams.maxTTL != "" {
-		maxTTL, err := common.ParseTTL(userParams.maxTTL)
-		if err != nil {
-			fmt.Printf("Unable to parse max-ttl\n")
-			os.Exit(1)
-		}
-		params.MaxTTL = maxTTL
+		Provider:    userParams.provider,
+		Login:       userParams.login,
+		Name:        userParams.name,
+		Email:       userParams.email,
+		IsAdmin:     userParams.admin,
+		MaxFileSize: parseMaxSize("max-file-size", userParams.maxFileSize),
+		MaxUserSize: parseMaxSize("max-user-size", userParams.maxUserSize),
+		MaxTTL:      parseMaxTTL(userParams.maxTTL),
 	}
 
 	if userParams.provider == common.ProviderLocal {
@@ -212,7 +236,7 @@ func showUser(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 	if user == nil {
-		fmt.Printf("User %s not found\n", userID)
+		fmt.Println(userNotFoundError(userParams.provider, userID))
 		os.Exit(1)
 	}
 
@@ -244,18 +268,18 @@ func updateUser(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 	if user == nil {
-		fmt.Printf("User %s not found\n", userID)
+		fmt.Println(userNotFoundError(userParams.provider, userID))
 		os.Exit(1)
 	}
 
 	params := &common.User{}
-	if userParams.name != "" {
+	if cmd.Flags().Changed("name") {
 		params.Name = userParams.name
 	} else {
 		params.Name = user.Name
 	}
 
-	if userParams.email != "" {
+	if cmd.Flags().Changed("email") {
 		params.Email = userParams.email
 	} else {
 		params.Email = user.Email
@@ -267,39 +291,20 @@ func updateUser(cmd *cobra.Command, args []string) {
 		params.IsAdmin = user.IsAdmin
 	}
 
-	if userParams.maxFileSize == "-1" {
-		params.MaxFileSize = -1
-	} else if userParams.maxFileSize != "" {
-		maxFileSize, err := humanize.ParseBytes(userParams.maxFileSize)
-		if err != nil {
-			fmt.Printf("Unable to parse max-file-size\n")
-			os.Exit(1)
-		}
-		params.MaxFileSize = int64(maxFileSize)
+	if cmd.Flags().Changed("max-file-size") {
+		params.MaxFileSize = parseMaxSize("max-file-size", userParams.maxFileSize)
 	} else {
 		params.MaxFileSize = user.MaxFileSize
 	}
 
-	if userParams.maxUserSize == "-1" {
-		params.MaxUserSize = -1
-	} else if userParams.maxUserSize != "" {
-		maxUserSize, err := humanize.ParseBytes(userParams.maxUserSize)
-		if err != nil {
-			fmt.Printf("Unable to parse max-user-size\n")
-			os.Exit(1)
-		}
-		params.MaxUserSize = int64(maxUserSize)
+	if cmd.Flags().Changed("max-user-size") {
+		params.MaxUserSize = parseMaxSize("max-user-size", userParams.maxUserSize)
 	} else {
 		params.MaxUserSize = user.MaxUserSize
 	}
 
-	if userParams.maxTTL != "" {
-		maxTTL, err := common.ParseTTL(userParams.maxTTL)
-		if err != nil {
-			fmt.Printf("Unable to parse max-ttl : %s\n", err)
-			os.Exit(1)
-		}
-		params.MaxTTL = maxTTL
+	if cmd.Flags().Changed("max-ttl") {
+		params.MaxTTL = parseMaxTTL(userParams.maxTTL)
 	} else {
 		params.MaxTTL = user.MaxTTL
 	}
@@ -365,6 +370,17 @@ func deleteUser(cmd *cobra.Command, args []string) {
 
 	userID := common.GetUserID(userParams.provider, userParams.login)
 
+	// Verify the user exists before prompting
+	user, err := metadataBackend.GetUser(userID)
+	if err != nil {
+		fmt.Printf("Unable to get user : %s\n", err)
+		os.Exit(1)
+	}
+	if user == nil {
+		fmt.Println(userNotFoundError(userParams.provider, userID))
+		os.Exit(1)
+	}
+
 	// Ask confirmation
 	fmt.Printf("Do you really want to delete this user %s and all its uploads ? [y/N]\n", userID)
 	ok, err := common.AskConfirmation(false)
@@ -376,6 +392,26 @@ func deleteUser(cmd *cobra.Command, args []string) {
 		os.Exit(0)
 	}
 
+	// 1. Soft-delete user uploads first (marks files for removal)
+	deleteUpload := func(upload *common.Upload) error {
+		return metadataBackend.RemoveUpload(upload.ID)
+	}
+	err = metadataBackend.ForEachUserUploads(userID, "", deleteUpload)
+	if err != nil {
+		fmt.Printf("unable to delete user uploads : %s\n", err)
+		os.Exit(1)
+	}
+
+	// 2. Clean data backend (delete actual files from storage)
+	plik := server.NewPlikServer(config)
+	plik.WithMetadataBackend(metadataBackend)
+
+	initializeDataBackend()
+	plik.WithDataBackend(dataBackend)
+
+	plik.Clean()
+
+	// 3. Delete user from metadata backend
 	deleted, err := metadataBackend.DeleteUser(userID)
 	if err != nil {
 		fmt.Printf("Unable to delete user : %s\n", err)
@@ -388,26 +424,4 @@ func deleteUser(cmd *cobra.Command, args []string) {
 	}
 
 	fmt.Printf("user %s has been deleted\n", userID)
-
-	// Delete user uploads
-
-	deleteUpload := func(upload *common.Upload) error {
-		return metadataBackend.RemoveUpload(upload.ID)
-	}
-	err = metadataBackend.ForEachUserUploads(userID, "", deleteUpload)
-	if err != nil {
-		fmt.Printf("unable to delete user uploads : %s\n", err)
-		os.Exit(1)
-	}
-
-	// Delete files
-
-	plik := server.NewPlikServer(config)
-	plik.WithMetadataBackend(metadataBackend)
-
-	initializeDataBackend()
-	plik.WithDataBackend(dataBackend)
-
-	// Delete upload and files
-	plik.Clean()
 }

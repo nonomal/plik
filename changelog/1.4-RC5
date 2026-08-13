@@ -1,0 +1,30 @@
+Plik 1.4-RC5
+
+Hi, today we're releasing the fifth release candidate of the next plik major version 1.4 !
+
+Here is the changelog :
+
+New :
+ - Default to Age encryption, deprecate OpenSSL/PGP backends
+ - Global --yes CLI flag for non-interactive mode
+ - Admin user management with search, filters, and sort controls (#636)
+ - CLI fakedb command to generate test databases
+ - Debian packages with APT repository on GitHub Pages
+ - Playwright E2E and Vitest unit test suites for webapp and CLI
+
+Fix :
+ - Comprehensive security hardening across all layers (#620-#629)
+ - E2EE passphrase modal hardening
+ - Hide Edit Account button for OAuth providers
+ - Fix admin quota inputs and modal overlay dismiss
+ - CLI: filter RC releases from stable builds and fix double login on first run (#642)
+ - Docker: fix PR build version string (#639, #640)
+
+Documentation :
+ - Add plikd server CLI documentation
+ - Helm chart README with helm-docs annotations (#641)
+
+Binaries will be built with Go 1.26.0
+
+Faithfully,
+The plik team

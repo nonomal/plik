@@ -32,7 +32,7 @@ import (
 // Please see https://cloud.google.com/storage/docs/xml-api/post-object
 // for reference about the fields.
 type PostPolicyV4Options struct {
-	// GoogleAccessID represents the authorizer of the signed URL generation.
+	// GoogleAccessID represents the authorizer of the signed post policy generation.
 	// It is typically the Google service account client email address from
 	// the Google Developers Console in the form of "xxx@developer.gserviceaccount.com".
 	// Required.
@@ -40,7 +40,7 @@ type PostPolicyV4Options struct {
 
 	// PrivateKey is the Google service account private key. It is obtainable
 	// from the Google Developers Console.
-	// At https://console.developers.google.com/project/<your-project-id>/apiui/credential,
+	// At https://console.developers.google.com/project/{your-project-id}/apiui/credential,
 	// create a service account client ID or reuse one of your existing service account
 	// credentials. Click on the "Generate new P12 key" to generate and download
 	// a new private key. Once you download the P12 file, use the following command
@@ -85,7 +85,7 @@ type PostPolicyV4Options struct {
 	// Exactly one of PrivateKey or SignRawBytes must be non-nil.
 	SignRawBytes func(bytes []byte) (signature []byte, err error)
 
-	// Expires is the expiration time on the signed URL.
+	// Expires is the expiration time on the signed post policy.
 	// It must be a time in the future.
 	// Required.
 	Expires time.Time
@@ -251,9 +251,6 @@ func conditionStatusCodeOnSuccess(statusCode int) PostPolicyV4Condition {
 func GenerateSignedPostPolicyV4(bucket, object string, opts *PostPolicyV4Options) (*PostPolicyV4, error) {
 	if bucket == "" {
 		return nil, errors.New("storage: bucket must be non-empty")
-	}
-	if object == "" {
-		return nil, errors.New("storage: object must be non-empty")
 	}
 	now := utcNow()
 	if err := validatePostPolicyV4Options(opts, now); err != nil {

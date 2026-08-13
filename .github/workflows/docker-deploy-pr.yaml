@@ -1,0 +1,126 @@
+name: docker-deploy-pr
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  check-permissions:
+    name: Check Permissions
+    # Trigger only on pull request comments and when the comment is exactly "docker deploy"
+    if: github.event.issue.pull_request && github.event.comment.body == 'docker deploy'
+    runs-on: ubuntu-latest
+    outputs:
+      head_ref: ${{ steps.pr.outputs.head_ref }}
+      head_repo: ${{ steps.pr.outputs.head_repo }}
+    steps:
+      - name: Check permissions
+        id: check_perms
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.payload.comment.user.login,
+            });
+            const allowed = ['admin', 'write'].includes(permission.permission);
+            if (!allowed) {
+              core.setFailed(`User ${context.payload.comment.user.login} does not have permission to trigger this workflow.`);
+            }
+
+      - name: Add reaction
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket',
+            });
+
+      - name: Get PR info
+        id: pr
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            core.setOutput('head_ref', pr.head.ref);
+            core.setOutput('head_repo', pr.head.repo.full_name);
+
+  build:
+    name: Build
+    needs: check-permissions
+    uses: ./.github/workflows/docker-build-reusable.yaml
+    with:
+      pr_number: ${{ github.event.issue.number }}
+      head_ref: ${{ needs.check-permissions.outputs.head_ref }}
+      head_repo: ${{ needs.check-permissions.outputs.head_repo }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  deploy:
+    name: Deploy
+    needs: [check-permissions, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ${{ secrets.DEPLOY_PATH }}
+            sed -i "s|image: rootgg/plik:.*|image: rootgg/plik:pr-${{ github.event.issue.number }}|" docker-compose.yml
+            docker compose pull plik
+            docker compose up -d plik
+            docker image prune -f
+
+  notify:
+    name: Notify
+    needs: [check-permissions, build, deploy]
+    runs-on: ubuntu-latest
+    if: always() && needs.check-permissions.result == 'success'
+    steps:
+      - name: Post success comment
+        if: needs.deploy.result == 'success'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `🚀 **Deployment Successful!**\n\nThe instance at [plik.root.gg](https://plik.root.gg) has been redeployed with image \`rootgg/plik:pr-${context.issue.number}\`.`
+            });
+
+      - name: Post build failure comment
+        if: needs.build.result == 'failure'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `❌ **Build Failed!**\n\nThe Docker image could not be built. Check the [workflow logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`
+            });
+
+      - name: Post deploy failure comment
+        if: needs.deploy.result == 'failure'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `❌ **Deployment Failed!**\n\nCheck the [workflow logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details. Ensure that GitHub Secrets are correctly configured.`
+            });

@@ -157,7 +157,17 @@ func loadSQLDump(t *testing.T, path string) {
 
 	sqldump, err := io.ReadAll(f)
 	require.NoError(t, err, "unable to get read sqldump")
-	_, err = sqlDB.Exec(string(sqldump))
+
+	// Filter out psql meta-commands (lines starting with \) that are not valid SQL.
+	// PostgreSQL 18+ pg_dump emits \restrict/\unrestrict for sandboxing.
+	var filteredLines []string
+	for line := range strings.SplitSeq(string(sqldump), "\n") {
+		if !strings.HasPrefix(line, `\`) {
+			filteredLines = append(filteredLines, line)
+		}
+	}
+
+	_, err = sqlDB.Exec(strings.Join(filteredLines, "\n"))
 	require.NoError(t, err, "unable to get load sqldump")
 }
 

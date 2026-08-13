@@ -104,6 +104,42 @@ func TestFileInvalidFileName(t *testing.T) {
 	context.TestInvalidParameter(t, rr, "file name")
 }
 
+func TestFileCrossUpload(t *testing.T) {
+	ctx := newTestingContext(common.NewConfiguration())
+
+	// Create upload A with a file
+	uploadA := &common.Upload{}
+	fileA := uploadA.NewFile()
+	fileA.Name = "filename"
+	uploadA.InitializeForTests()
+	err := ctx.GetMetadataBackend().CreateUpload(uploadA)
+	require.NoError(t, err, "create upload A error")
+
+	// Create upload B (no file)
+	uploadB := &common.Upload{}
+	uploadB.InitializeForTests()
+	err = ctx.GetMetadataBackend().CreateUpload(uploadB)
+	require.NoError(t, err, "create upload B error")
+
+	// Set context to upload B, but request file from upload A
+	ctx.SetUpload(uploadB)
+
+	req, err := http.NewRequest("GET", "", &bytes.Buffer{})
+	require.NoError(t, err, "unable to create new request")
+
+	vars := map[string]string{
+		"fileID":   fileA.ID,
+		"filename": fileA.Name,
+	}
+	req = mux.SetURLVars(req, vars)
+
+	rr := ctx.NewRecorder(req)
+	File(ctx, common.DummyHandler).ServeHTTP(rr, req)
+
+	// Should return 404 Not Found (not 500) to prevent file ID enumeration
+	context.TestNotFound(t, rr, "file "+fileA.ID+" not found")
+}
+
 func TestFile(t *testing.T) {
 	ctx := newTestingContext(common.NewConfiguration())
 

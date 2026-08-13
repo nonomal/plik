@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"encoding/gob"
-	"fmt"
 	"io"
 	"os"
 
@@ -23,7 +22,7 @@ const (
 
 type object struct {
 	Type   metadataType
-	Object interface{}
+	Object any
 }
 
 type exporter struct {
@@ -36,7 +35,7 @@ func newExporter(path string) (e *exporter, err error) {
 	e = &exporter{}
 
 	// Open file for writing
-	e.writer, err = os.Create(path)
+	e.writer, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +98,12 @@ func (b *Backend) Export(path string) (err error) {
 		return err
 	}
 
-	defer func() { _ = e.close() }()
+	defer func() {
+		closeErr := e.close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
 
 	count := 0
 	err = b.ForEachUsers(func(user *common.User) error {
@@ -109,7 +113,7 @@ func (b *Backend) Export(path string) (err error) {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("exported %d users\n", count)
+	b.log.Infof("exported %d users", count)
 
 	count = 0
 	err = b.ForEachToken(func(token *common.Token) error {
@@ -119,7 +123,7 @@ func (b *Backend) Export(path string) (err error) {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("exported %d tokens\n", count)
+	b.log.Infof("exported %d tokens", count)
 
 	count = 0
 	// Need to export "soft deleted" uploads too else some removed/deleted files will have broken foreign keys
@@ -130,7 +134,7 @@ func (b *Backend) Export(path string) (err error) {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("exported %d uploads\n", count)
+	b.log.Infof("exported %d uploads", count)
 
 	count = 0
 	err = b.ForEachFile(func(file *common.File) error {
@@ -140,7 +144,7 @@ func (b *Backend) Export(path string) (err error) {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("exported %d files\n", count)
+	b.log.Infof("exported %d files", count)
 
 	count = 0
 	err = b.ForEachSetting(func(setting *common.Setting) error {
@@ -150,7 +154,7 @@ func (b *Backend) Export(path string) (err error) {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("exported %d settings\n", count)
+	b.log.Infof("exported %d settings", count)
 
 	return nil
 }

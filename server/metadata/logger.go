@@ -31,17 +31,17 @@ func (l *GormLoggerAdapter) LogMode(level gorm_logger.LogLevel) gorm_logger.Inte
 }
 
 // Info print info
-func (l *GormLoggerAdapter) Info(ctx context.Context, msg string, data ...interface{}) {
+func (l *GormLoggerAdapter) Info(ctx context.Context, msg string, data ...any) {
 	l.logger.Infof(msg, data...)
 }
 
 // Warn print warn messages
-func (l *GormLoggerAdapter) Warn(ctx context.Context, msg string, data ...interface{}) {
+func (l *GormLoggerAdapter) Warn(ctx context.Context, msg string, data ...any) {
 	l.logger.Warningf(msg, data...)
 }
 
 // Error print error messages
-func (l *GormLoggerAdapter) Error(ctx context.Context, msg string, data ...interface{}) {
+func (l *GormLoggerAdapter) Error(ctx context.Context, msg string, data ...any) {
 	l.logger.Criticalf(msg, data...)
 }
 

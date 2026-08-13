@@ -2,6 +2,7 @@
 package gormigrate
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -109,6 +110,9 @@ var (
 
 // New returns a new Gormigrate.
 func New(db *gorm.DB, options *Options, migrations []*Migration) *Gormigrate {
+	if options == nil {
+		options = DefaultOptions
+	}
 	if options.TableName == "" {
 		options.TableName = DefaultOptions.TableName
 	}
@@ -379,7 +383,7 @@ func (g *Gormigrate) runMigration(migration *Migration) error {
 //	struct defined as {
 //	  ID string `gorm:"primaryKey;column:<Options.IDColumnName>;size:<Options.IDColumnSize>"`
 //	}
-func (g *Gormigrate) model() interface{} {
+func (g *Gormigrate) model() any {
 	f := reflect.StructField{
 		Name: reflect.ValueOf("ID").Interface().(string),
 		Type: reflect.TypeOf(""),
@@ -432,12 +436,15 @@ func (g *Gormigrate) canInitializeSchema() (bool, error) {
 }
 
 func (g *Gormigrate) unknownMigrationsHaveHappened() (bool, error) {
-	sql := fmt.Sprintf("SELECT %s FROM %s", g.options.IDColumnName, g.options.TableName)
-	rows, err := g.tx.Raw(sql).Rows()
+	rows, err := g.tx.Table(g.options.TableName).Select(g.options.IDColumnName).Rows()
 	if err != nil {
 		return false, err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			g.tx.Logger.Error(context.TODO(), err.Error())
+		}
+	}()
 
 	validIDSet := make(map[string]struct{}, len(g.migrations)+1)
 	validIDSet[initSchemaMigrationID] = struct{}{}
@@ -459,7 +466,8 @@ func (g *Gormigrate) unknownMigrationsHaveHappened() (bool, error) {
 }
 
 func (g *Gormigrate) insertMigration(id string) error {
-	record := map[string]interface{}{g.options.IDColumnName: id}
+	record := g.model()
+	reflect.ValueOf(record).Elem().FieldByName("ID").SetString(id)
 	return g.tx.Table(g.options.TableName).Create(record).Error
 }
 

@@ -170,3 +170,43 @@ func TestRevokeTokenMissingUser(t *testing.T) {
 	RevokeToken(ctx, rr, req)
 	context.TestUnauthorized(t, rr, "missing user, please login first")
 }
+
+func TestCreateTokenApiTokensDisabled(t *testing.T) {
+	config := common.NewConfiguration()
+	config.FeatureApiTokens = common.FeatureDisabled
+	ctx := newTestingContext(config)
+
+	user := common.NewUser(common.ProviderLocal, "user1")
+	err := ctx.GetMetadataBackend().CreateUser(user)
+	require.NoError(t, err, "unable to create test user")
+	ctx.SetUser(user)
+
+	req, err := http.NewRequest("POST", "/me/token", bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	rr := ctx.NewRecorder(req)
+	CreateToken(ctx, rr, req)
+	context.TestBadRequest(t, rr, "API tokens are disabled")
+}
+
+func TestRevokeTokenApiTokensDisabled(t *testing.T) {
+	config := common.NewConfiguration()
+	config.FeatureApiTokens = common.FeatureDisabled
+	ctx := newTestingContext(config)
+
+	user := common.NewUser(common.ProviderLocal, "user1")
+	token := user.NewToken()
+	err := ctx.GetMetadataBackend().CreateUser(user)
+	require.NoError(t, err, "unable to create test user")
+	ctx.SetUser(user)
+
+	req, err := http.NewRequest("DELETE", "/me/token/"+token.Token, bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	vars := map[string]string{"token": token.Token}
+	req = mux.SetURLVars(req, vars)
+
+	rr := ctx.NewRecorder(req)
+	RevokeToken(ctx, rr, req)
+	context.TestBadRequest(t, rr, "API tokens are disabled")
+}

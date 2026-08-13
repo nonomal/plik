@@ -1,7 +1,6 @@
 package common
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,16 +17,35 @@ func TestUserNewToken(t *testing.T) {
 
 func TestUser_String(t *testing.T) {
 	user := NewUser(ProviderLocal, "user")
-	user.Name = "user"
+	user.Name = "John Doe"
 	user.Login = "user"
 	user.Email = "user@root.gg"
-	fmt.Println(user.String())
+	require.Equal(t, "local:user John Doe user@root.gg", user.String())
+}
+
+func TestUser_String_OIDC(t *testing.T) {
+	// OIDC users are keyed by the sub claim, the login holds preferred_username.
+	// The list output must show the real ID so it can be used with --login.
+	user := NewUser(ProviderOIDC, "8f9d056a-1dab-3192-f1ae-552e024d948e")
+	user.Login = "test_user"
+	user.Name = "Test User"
+	user.Email = "primary@email.com"
+	require.Equal(t, "oidc:8f9d056a-1dab-3192-f1ae-552e024d948e test_user Test User primary@email.com", user.String())
+}
+
+func TestUser_String_EmptyID(t *testing.T) {
+	// A user built without an ID (e.g. constructed directly) must still fall
+	// back to provider:login rather than emitting a leading space.
+	user := &User{Provider: ProviderLocal, Login: "user"}
+	require.Equal(t, "local:user", user.String())
 }
 
 func TestIsValidProvider(t *testing.T) {
 	require.True(t, IsValidProvider(ProviderLocal))
 	require.True(t, IsValidProvider(ProviderGoogle))
+	require.True(t, IsValidProvider(ProviderGitHub))
 	require.True(t, IsValidProvider(ProviderOVH))
+	require.True(t, IsValidProvider(ProviderOIDC))
 	require.False(t, IsValidProvider(""))
 	require.False(t, IsValidProvider("foo"))
 }
@@ -107,6 +125,7 @@ func TestUpdateUser(t *testing.T) {
 		MaxUserSize: 1234,
 		MaxTTL:      1234,
 		IsAdmin:     true,
+		Theme:       "nord",
 	}
 
 	params := *userOK
@@ -119,6 +138,7 @@ func TestUpdateUser(t *testing.T) {
 	params.MaxUserSize = 0
 	params.MaxTTL = 0
 	params.IsAdmin = false
+	params.Theme = "catppuccin-mocha"
 
 	user := *userOK
 	err := UpdateUser(&user, &params)
@@ -134,6 +154,7 @@ func TestUpdateUser(t *testing.T) {
 	require.Equal(t, params.MaxUserSize, user.MaxUserSize)
 	require.Equal(t, params.MaxTTL, user.MaxTTL)
 	require.Equal(t, params.IsAdmin, user.IsAdmin)
+	require.Equal(t, userOK.Theme, user.Theme) // Theme is NOT copied by UpdateUser (managed via PATCH /me)
 
 	params = *userOK
 	params.Password = "newpassword"

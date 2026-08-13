@@ -12,7 +12,7 @@ type BackendConfig struct {
 
 // NewZipBackendConfig instantiate a new Backend Configuration
 // from config map passed as argument
-func NewZipBackendConfig(config map[string]interface{}) (zb *BackendConfig) {
+func NewZipBackendConfig(config map[string]any) (zb *BackendConfig) {
 	zb = new(BackendConfig)
 	zb.Zip = "/bin/zip"
 	utils.Assign(zb, config)

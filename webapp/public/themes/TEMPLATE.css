@@ -1,0 +1,164 @@
+/*
+ * ============================================================
+ *  Plik Theme Template
+ * ============================================================
+ *
+ * HOW TO USE:
+ *   1. Copy this file and rename it to your theme name
+ *      (e.g. "my-theme.css")
+ *   2. Replace "THEME_NAME" below with your theme name
+ *      (must match the filename without .css)
+ *   3. Add your theme name to the "themes" array in settings.json
+ *      (e.g. "themes": ["*", "my-theme"] to keep all built-ins + yours)
+ *   4. Set "theme": "my-theme" in settings.json (or let users pick it)
+ *   5. Customize the colors below
+ *
+ * COLOR SCALE CONVENTION:
+ *   The surface scale goes from 50 (strongest text) to 950
+ *   (deepest background). How they map depends on whether
+ *   your theme is dark or light:
+ *
+ *   DARK themes:  50 = light text,  950 = dark background
+ *   LIGHT themes: 50 = dark text,   950 = light background
+ *
+ * COMPONENT OVERRIDES (optional):
+ *   If the base utility classes don't look right with your
+ *   palette, you can override specific components at the
+ *   bottom of this file. The most common ones are included
+ *   as commented-out examples.
+ *
+ * ============================================================
+ */
+[data-theme="THEME_NAME"] {
+    color-scheme: dark;
+    /* Set to "light" for light themes */
+
+    /* ── Surface Scale ──
+   *
+   * 50:  Emphasized text — headings, bold stat values
+   * 100: Primary body text — paragraphs, labels
+   * 200: Secondary text — slightly softer than primary
+   * 300: Tertiary text — sidebar nav items, metadata
+   * 400: Muted text — icons, less important labels
+   * 500: Subtle text — timestamps, placeholders
+   * 600: Hint text — helper text below inputs, borders
+   * 700: Dividers — subtle separators, faint borders
+   * 800: Elevated panels — slightly raised surfaces
+   * 900: Page background — main canvas
+   * 950: Deepest background — behind everything
+   */
+    --color-surface-50: #f8fafc;
+    --color-surface-100: #f1f5f9;
+    --color-surface-200: #e2e8f0;
+    --color-surface-300: #cbd5e1;
+    --color-surface-400: #94a3b8;
+    --color-surface-500: #64748b;
+    --color-surface-600: #475569;
+    --color-surface-700: #334155;
+    --color-surface-800: #1e293b;
+    --color-surface-900: #0f172a;
+    --color-surface-950: #020617;
+
+    /* ── Accent Palette ──
+   *
+   * 400: Links, active navigation indicator, logo, toggle on-state
+   * 500: Primary button fill, hover accent, ghost button hover text
+   * 600: Pressed/focus state, darker accent variant
+   */
+    --color-accent-400: #38bdf8;
+    --color-accent-500: #0ea5e9;
+    --color-accent-600: #0284c7;
+
+    /* ── Semantic ──
+   *
+   * on-accent: Text placed on accent-colored backgrounds
+   *            (buttons, badges). Usually white.
+   */
+    --color-on-accent: #ffffff;
+}
+
+/* ============================================================
+ *  COMPONENT OVERRIDES (optional)
+ *  Uncomment and customize if the defaults don't look right.
+ * ============================================================ */
+
+/*
+ * Cards & Panels
+ * Glass cards use semi-transparent backgrounds by default.
+ * Light themes typically need opaque backgrounds.
+ *
+ * [data-theme="THEME_NAME"] .glass-card {
+ *   background-color: #??????;
+ *   border-color: #??????;
+ *   box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.1);
+ * }
+ */
+
+/*
+ * Toggle Switch
+ * Inactive and active track colors.
+ *
+ * [data-theme="THEME_NAME"] .toggle-switch {
+ *   background-color: #??????;
+ * }
+ * [data-theme="THEME_NAME"] .toggle-switch[data-active="true"] {
+ *   background-color: #??????;
+ * }
+ */
+
+/*
+ * Buttons — FILLED variant (light themes often want pastel tints)
+ *
+ * [data-theme="THEME_NAME"] .btn-primary {
+ *   background-color: color-mix(in srgb, var(--color-accent-500) 12%, transparent);
+ *   color: var(--color-accent-500);
+ *   box-shadow: none;
+ * }
+ * [data-theme="THEME_NAME"] .btn-primary:hover {
+ *   background-color: color-mix(in srgb, var(--color-accent-500) 20%, transparent);
+ * }
+ */
+
+/*
+ * Buttons — OUTLINED variant (transparent bg, colored border + text)
+ * Great for dark themes that want a sleeker, more minimal look.
+ *
+ * [data-theme="THEME_NAME"] .btn-primary {
+ *   background-color: transparent;
+ *   color: var(--color-accent-500);
+ *   border: 1px solid var(--color-accent-500);
+ *   box-shadow: none;
+ * }
+ * [data-theme="THEME_NAME"] .btn-primary:hover {
+ *   background-color: color-mix(in srgb, var(--color-accent-500) 12%, transparent);
+ * }
+ * [data-theme="THEME_NAME"] .btn-success {
+ *   background-color: transparent;
+ *   color: #22c55e;
+ *   border: 1px solid #22c55e;
+ *   box-shadow: none;
+ * }
+ * [data-theme="THEME_NAME"] .btn-danger {
+ *   background-color: transparent;
+ *   color: #ef4444;
+ *   border: 1px solid #ef4444;
+ *   box-shadow: none;
+ * }
+ */
+
+/*
+ * Sidebar, File Rows, Inputs
+ *
+ * [data-theme="THEME_NAME"] .sidebar-section {
+ *   background-color: #??????;
+ *   border-color: #??????;
+ * }
+ * [data-theme="THEME_NAME"] .file-row {
+ *   background-color: #??????;
+ *   border-color: #??????;
+ * }
+ * [data-theme="THEME_NAME"] .input-field {
+ *   background-color: #??????;
+ *   border-color: #??????;
+ * }
+ */

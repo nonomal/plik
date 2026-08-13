@@ -1,0 +1,121 @@
+/*
+ * Plik — Light Theme
+ *
+ * A clean, crisp light theme with cool-tinted grays and muted blue accents.
+ * Uses inverted surface scale: 50 = dark text, 950 = light background.
+ */
+[data-theme="light"] {
+    color-scheme: light;
+
+    /* ── Surface Scale (dark text → light background) ── */
+    --color-surface-50: #3d4654;
+    /* Emphasized headings, bold stats */
+    --color-surface-100: #334155;
+    /* Primary body text */
+    --color-surface-200: #334155;
+    /* Secondary body text */
+    --color-surface-300: #475569;
+    /* Tertiary text, sidebar nav labels */
+    --color-surface-400: #64748b;
+    /* Muted text, icons */
+    --color-surface-500: #94a3b8;
+    /* Subtle labels, timestamps */
+    --color-surface-600: #9ca3af;
+    /* Hint text below inputs */
+    --color-surface-700: #d9dde5;
+    /* Borders & subtle dividers */
+    --color-surface-800: #fdfdfd;
+    /* Cards, panels, inputs */
+    --color-surface-900: #f7f9fb;
+    /* Header background */
+    --color-surface-950: #fafafa;
+    /* Page background */
+
+    /* ── Accent Palette ── */
+    --color-accent-400: #3b8fc2;
+    /* Links, active nav, logo, toggle */
+    --color-accent-500: #0369a1;
+    /* Primary buttons, hover accent */
+    --color-accent-600: #075985;
+    /* Pressed/darker accent */
+
+    /* ── Semantic ── */
+    --color-on-accent: #ffffff;
+    /* Text on accent-colored backgrounds */
+}
+
+/* ── Panels & Cards (solid backgrounds, no glassmorphism) ── */
+[data-theme="light"] .glass-card,
+[data-theme="light"] .sidebar-section,
+[data-theme="light"] .file-row,
+[data-theme="light"] .input-field {
+    background-color: var(--color-surface-800);
+    border-color: var(--color-surface-700);
+    backdrop-filter: none;
+}
+
+[data-theme="light"] .glass-card {
+    box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.08);
+}
+
+[data-theme="light"] .sidebar-section {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.06), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+}
+
+[data-theme="light"] .file-row {
+    box-shadow: 0 2px 4px -1px rgb(0 0 0 / 0.06);
+}
+
+[data-theme="light"] .file-row:hover {
+    background-color: #f1f3f6;
+}
+
+/* ── Toggle Switch ── */
+[data-theme="light"] .toggle-switch {
+    background-color: #cbd5e1;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .toggle-switch[data-active="true"] {
+    background-color: #3b8fc2;
+}
+
+/* ── Buttons (pastel tints instead of solid fills) ── */
+[data-theme="light"] .btn-primary {
+    background-color: color-mix(in srgb, var(--color-accent-500) 12%, transparent);
+    color: var(--color-accent-500);
+    box-shadow: none;
+}
+
+[data-theme="light"] .btn-primary:hover {
+    background-color: color-mix(in srgb, var(--color-accent-500) 20%, transparent);
+}
+
+[data-theme="light"] .btn-success {
+    background-color: color-mix(in srgb, #22c55e 12%, transparent);
+    color: #16a34a;
+    box-shadow: none;
+}
+
+[data-theme="light"] .btn-success:hover {
+    background-color: color-mix(in srgb, #22c55e 20%, transparent);
+}
+
+[data-theme="light"] .btn-danger {
+    background-color: color-mix(in srgb, #ef4444 12%, transparent);
+    color: #dc2626;
+    box-shadow: none;
+}
+
+[data-theme="light"] .btn-danger:hover {
+    background-color: color-mix(in srgb, #ef4444 20%, transparent);
+}
+
+[data-theme="light"] .btn-ghost {
+    color: var(--color-surface-300);
+}
+
+[data-theme="light"] .btn-ghost:hover {
+    color: var(--color-accent-500);
+    background-color: color-mix(in srgb, var(--color-accent-500) 8%, transparent);
+}

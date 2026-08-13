@@ -21,6 +21,9 @@ func GetArchive(ctx *context.Context, resp http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	// Set CORS headers for cross-origin fetch
+	setCORSHeaders(ctx, resp, req)
+
 	// Get upload from context
 	upload := ctx.GetUpload()
 	if upload == nil {
@@ -35,11 +38,10 @@ func GetArchive(ctx *context.Context, resp http.ResponseWriter, req *http.Reques
 	// Set content type
 	resp.Header().Set("Content-Type", "application/zip")
 
-	/* Additional security headers for possibly unsafe content */
+	/* Security headers — always set */
 	resp.Header().Set("X-Content-Type-Options", "nosniff")
-	resp.Header().Set("X-XSS-Protection", "1; mode=block")
 	resp.Header().Set("X-Frame-Options", "DENY")
-	resp.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'none'; style-src 'none'; img-src 'none'; connect-src 'none'; font-src 'none'; object-src 'none'; media-src 'none'; child-src 'none'; form-action 'none'; frame-ancestors 'none'; plugin-types ''; sandbox ''")
+	resp.Header().Set("Content-Security-Policy", "default-src 'none'; form-action 'none'; frame-ancestors 'none'; sandbox")
 
 	/* Additional header for disabling cache if the upload is OneShot */
 	if upload.OneShot {
@@ -71,9 +73,9 @@ func GetArchive(ctx *context.Context, resp http.ResponseWriter, req *http.Reques
 	// -> The client should download file instead of displaying it
 	dl := req.URL.Query().Get("dl")
 	if dl != "" {
-		resp.Header().Set("Content-Disposition", fmt.Sprintf(`attachement; filename="%s"`, fileName))
+		resp.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, common.SanitizeFilenameForDisposition(fileName)))
 	} else {
-		resp.Header().Set("Content-Disposition", fmt.Sprintf(`filename="%s"`, fileName))
+		resp.Header().Set("Content-Disposition", fmt.Sprintf(`filename="%s"`, common.SanitizeFilenameForDisposition(fileName)))
 	}
 
 	// HEAD Request => Do not print file, user just wants http headers
@@ -123,7 +125,17 @@ func GetArchive(ctx *context.Context, resp http.ResponseWriter, req *http.Reques
 				return
 			}
 
-			fileWriter, err := archive.Create(file.Name)
+			method := zip.Deflate // Default: compression enabled
+			if !ctx.GetConfig().EnableArchiveCompression {
+				method = zip.Store // Disable compression to prevent CPU exhaustion
+			}
+
+			header := &zip.FileHeader{
+				Name:   file.Name,
+				Method: method,
+			}
+
+			fileWriter, err := archive.CreateHeader(header)
 			if err != nil {
 				ctx.InternalServerError("error while creating zip archive", err)
 				return

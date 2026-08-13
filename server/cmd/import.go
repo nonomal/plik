@@ -17,7 +17,7 @@ var importParams = importFlagParams{}
 
 // importCmd to import metadata
 var importCmd = &cobra.Command{
-	Use:   "import",
+	Use:   "import [input-file]",
 	Short: "Import metadata",
 	Run:   importMetadata,
 }
@@ -29,12 +29,13 @@ func init() {
 
 func importMetadata(cmd *cobra.Command, args []string) {
 	if len(args) != 1 {
-		fmt.Println("Missing metadata export file")
+		fmt.Println("Missing metadata import file")
+		os.Exit(1)
 	}
 
 	initializeMetadataBackend()
 
-	fmt.Printf("Importing metadata from %s to %s %s\n", args[0], metadataBackend.Config.Driver, metadataBackend.Config.ConnectionString)
+	fmt.Printf("Importing metadata from %s to %s\n", args[0], metadataBackend.Config.Driver)
 
 	importOptions := &metadata.ImportOptions{
 		IgnoreErrors: importParams.ignoreErrors,

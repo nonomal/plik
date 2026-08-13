@@ -52,7 +52,7 @@ func TestBackend_GetTokens(t *testing.T) {
 	defer shutdownTestMetadataBackend(b)
 
 	user := common.NewUser(common.ProviderLocal, "user")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		user.NewToken()
 	}
 	createUser(t, b, user)
@@ -93,7 +93,7 @@ func TestBackend_CountUserTokens(t *testing.T) {
 	defer shutdownTestMetadataBackend(b)
 
 	user := common.NewUser(common.ProviderLocal, "user")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		user.NewToken()
 	}
 	createUser(t, b, user)

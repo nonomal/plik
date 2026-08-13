@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"testing"
 
@@ -62,6 +63,7 @@ func TestGetArchive(t *testing.T) {
 
 	require.Equal(t, len(upload.Files), len(z.File), "invalid archive file count")
 	require.Equal(t, file.Name, z.File[0].Name, "invalid archived file name")
+	require.Equal(t, zip.Deflate, z.File[0].Method, "archive should use zip.Deflate by default (EnableArchiveCompression=true)")
 
 	fileReader, err := z.File[0].Open()
 	require.NoError(t, err, "unable to open archived file")
@@ -119,18 +121,18 @@ func TestGetArchiveFileNameTooLong(t *testing.T) {
 	upload := &common.Upload{}
 	ctx.SetUpload(upload)
 
-	archiveName := ""
-	for i := 0; i < 10240; i++ {
-		archiveName += "x"
+	var archiveName strings.Builder
+	for range 10240 {
+		archiveName.WriteString("x")
 	}
-	archiveName += ".zip"
+	archiveName.WriteString(".zip")
 
-	req, err := http.NewRequest("GET", "/archive/"+upload.ID+"/"+archiveName, bytes.NewBuffer([]byte{}))
+	req, err := http.NewRequest("GET", "/archive/"+upload.ID+"/"+archiveName.String(), bytes.NewBuffer([]byte{}))
 	require.NoError(t, err, "unable to create new request")
 
 	// Fake gorilla/mux vars
 	vars := map[string]string{
-		"filename": archiveName,
+		"filename": archiveName.String(),
 	}
 	req = mux.SetURLVars(req, vars)
 
@@ -211,6 +213,7 @@ func TestGetArchiveOneShot(t *testing.T) {
 
 	require.Equal(t, len(upload.Files), len(z.File), "invalid archive file count")
 	require.Equal(t, file.Name, z.File[0].Name, "invalid archived file name")
+	require.Equal(t, zip.Deflate, z.File[0].Method, "archive should use zip.Deflate by default (EnableArchiveCompression=true)")
 
 	fileReader, err := z.File[0].Open()
 	require.NoError(t, err, "unable to open archived file")
@@ -223,6 +226,57 @@ func TestGetArchiveOneShot(t *testing.T) {
 	require.NoError(t, err, "get file error")
 	require.Equal(t, common.FileRemoved, file.Status, "get file error")
 
+}
+
+func TestGetArchiveNoCompression(t *testing.T) {
+	config := common.NewConfiguration()
+	config.EnableArchiveCompression = false
+	ctx := newTestingContext(config)
+
+	data := "data data data data data data data" // repetitive data compresses well
+
+	upload := &common.Upload{}
+	file := upload.NewFile()
+	file.Name = "file.txt"
+	file.Status = "uploaded"
+	file.Size = int64(len(data))
+
+	createTestUpload(t, ctx, upload)
+
+	err := createTestFile(ctx, file, bytes.NewBuffer([]byte(data)))
+	require.NoError(t, err, "unable to create test file")
+
+	ctx.SetUpload(upload)
+
+	req, err := http.NewRequest("GET", "/archive/"+upload.ID+"/"+"archive.zip", bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	vars := map[string]string{
+		"filename": "archive.zip",
+	}
+	req = mux.SetURLVars(req, vars)
+
+	rr := ctx.NewRecorder(req)
+	GetArchive(ctx, rr, req)
+
+	context.TestOK(t, rr)
+
+	respBody, err := io.ReadAll(rr.Body)
+	require.NoError(t, err, "unable to read response body")
+
+	z, err := zip.NewReader(bytes.NewReader(respBody), int64(len(respBody)))
+	require.NoError(t, err, "unable to unzip response body")
+
+	require.Equal(t, len(upload.Files), len(z.File), "invalid archive file count")
+	require.Equal(t, file.Name, z.File[0].Name, "invalid archived file name")
+	require.Equal(t, zip.Store, z.File[0].Method, "archive should use zip.Store when EnableArchiveCompression is false")
+
+	fileReader, err := z.File[0].Open()
+	require.NoError(t, err, "unable to open archived file")
+
+	content, err := io.ReadAll(fileReader)
+	require.NoError(t, err, "unable to read archived file")
+	require.Equal(t, data, string(content), "invalid archived file content")
 }
 
 func TestGetArchiveNoArchiveName(t *testing.T) {

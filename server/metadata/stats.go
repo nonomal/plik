@@ -60,7 +60,7 @@ func (b *Backend) GetUserStatistics(userID string, tokenStr *string) (stats *com
 
 // GetServerStatistics return statistics about user all uploads
 func (b *Backend) GetServerStatistics() (stats *common.ServerStats, err error) {
-	users, err := b.CountUsers()
+	users, err := b.CountUsers("", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (b *Backend) GetServerStatistics() (stats *common.ServerStats, err error) {
 	}
 
 	stats = &common.ServerStats{
-		Users:            users,
+		Users:            int(users),
 		Uploads:          uploads,
 		AnonymousUploads: anonUploads,
 		Files:            files,

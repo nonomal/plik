@@ -45,7 +45,7 @@ func File(ctx *context.Context, next http.Handler) http.Handler {
 		}
 
 		if file.UploadID != upload.ID {
-			ctx.InternalServerError("invalid file upload id", nil)
+			ctx.NotFound("file %s not found", fileID)
 			return
 		}
 

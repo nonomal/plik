@@ -1,0 +1,13 @@
+apiVersion: v2
+name: plik
+description: A Helm chart for Plik, a scalable & friendly temporary file upload system.
+type: application
+
+# __VERSION__ is replaced with the release tag at build time by releaser/helm_release.sh
+# To install from source replace the __VERSION__ placeholder with a valid semver or run:
+#   make helm-install
+version: __VERSION__
+appVersion: "__VERSION__"
+
+maintainers:
+  - name: root-gg

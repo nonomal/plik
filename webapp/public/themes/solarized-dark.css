@@ -1,0 +1,108 @@
+/*
+ * Plik — Solarized Dark Theme
+ * Based on Ethan Schoonover's Solarized palette
+ * https://ethanschoonover.com/solarized/
+ */
+[data-theme="solarized-dark"] {
+    color-scheme: dark;
+
+    /* ── Surface Scale ── */
+    --color-surface-50: #fdf6e3;
+    /* base3  — emphasized headings */
+    --color-surface-100: #eee8d5;
+    /* base2  — primary text */
+    --color-surface-200: #93a1a1;
+    /* base1  — secondary text */
+    --color-surface-300: #839496;
+    /* base0  — tertiary text */
+    --color-surface-400: #657b83;
+    /* base00 — muted text */
+    --color-surface-500: #586e75;
+    /* base01 — subtle labels */
+    --color-surface-600: #073642;
+    /* base02 — hint text */
+    --color-surface-700: #073642;
+    /* base02 — dividers */
+    --color-surface-800: #002b36;
+    /* base03 — elevated panels */
+    --color-surface-900: #002b36;
+    /* base03 — page background */
+    --color-surface-950: #001e26;
+    /* darker — deepest background */
+
+    /* ── Accent ── */
+    --color-accent-400: #2aa198;
+    /* cyan    — links, active nav, logo */
+    --color-accent-500: #2aa198;
+    /* cyan    — primary buttons */
+    --color-accent-600: #1f7a73;
+    /* darker  — pressed accent */
+
+    /* ── Danger / Success (palette-matched, softer than defaults) ── */
+    --color-danger-500: #cb4b16;
+    /* orange  — less aggressive than pure red */
+    --color-danger-600: #b5421a;
+    --color-success-500: #859900;
+    /* yellow-green — Solarized green */
+    --color-success-600: #6d7e00;
+
+    /* ── Semantic ── */
+    --color-on-accent: #fdf6e3;
+}
+
+/* ── Component Overrides ── */
+[data-theme="solarized-dark"] .glass-card {
+    background-color: rgba(0, 43, 54, 0.92);
+    border-color: #073642;
+}
+
+[data-theme="solarized-dark"] .sidebar-section {
+    background-color: rgba(0, 43, 54, 0.85);
+    border-color: #073642;
+}
+
+[data-theme="solarized-dark"] .file-row {
+    border-color: #073642;
+}
+
+[data-theme="solarized-dark"] .input-field {
+    background-color: #073642;
+    border-color: #094a58;
+}
+
+/* Outlined / inverted buttons — accent border + text, transparent fill */
+[data-theme="solarized-dark"] .btn-primary {
+    background-color: transparent;
+    color: #2aa198;
+    border: 1px solid rgba(42, 161, 152, 0.4);
+    box-shadow: none;
+}
+
+[data-theme="solarized-dark"] .btn-primary:hover {
+    background-color: rgba(42, 161, 152, 0.12);
+    border-color: rgba(42, 161, 152, 0.6);
+}
+
+[data-theme="solarized-dark"] .btn-success {
+    background-color: transparent;
+    color: #859900;
+    border: 1px solid rgba(133, 153, 0, 0.4);
+    box-shadow: none;
+}
+
+[data-theme="solarized-dark"] .btn-success:hover {
+    background-color: rgba(133, 153, 0, 0.12);
+    border-color: rgba(133, 153, 0, 0.6);
+}
+
+[data-theme="solarized-dark"] .btn-danger {
+    background-color: transparent;
+    color: #cb4b16;
+    border: 1px solid rgba(203, 75, 22, 0.4);
+    box-shadow: none;
+}
+
+[data-theme="solarized-dark"] .btn-danger:hover {
+    background-color: rgba(203, 75, 22, 0.12);
+    border-color: rgba(203, 75, 22, 0.6);
+}

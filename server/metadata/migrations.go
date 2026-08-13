@@ -156,6 +156,95 @@ func (b *Backend) getMigrations() []*gormigrate.Migration {
 				b.log.Criticalf("Something went wrong. Please check database status manually")
 				return nil
 			},
+		}, {
+			ID: "0005-cli-auth-sessions",
+			Migrate: func(tx *gorm.DB) error {
+				type CLIAuthSession struct {
+					Code      string `gorm:"primaryKey;size:16"`
+					Secret    string `gorm:"size:64"`
+					Status    string `gorm:"size:16;default:pending"`
+					Token     string `gorm:"size:64"`
+					CreatedAt time.Time
+					ExpiresAt time.Time `gorm:"index"`
+				}
+
+				b.log.Warning("Applying database migration 0005-cli-auth-sessions")
+				return b.setupTxForMigration(tx).AutoMigrate(&CLIAuthSession{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				b.log.Criticalf("Something went wrong. Please check database status manually")
+				return nil
+			},
+		}, {
+			ID: "0006-user-profile-picture",
+			Migrate: func(tx *gorm.DB) error {
+				type User struct {
+					ProfilePicture string `json:"profilePicture,omitempty"`
+				}
+
+				b.log.Warning("Applying database migration 0006-user-profile-picture")
+				return b.setupTxForMigration(tx).AutoMigrate(&User{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				b.log.Criticalf("Something went wrong. Please check database status manually")
+				return nil
+			},
+		}, {
+			ID: "0007-upload-e2ee",
+			Migrate: func(tx *gorm.DB) error {
+				type Upload struct {
+					E2EE string `json:"e2ee,omitempty" gorm:"column:e2ee"`
+				}
+
+				b.log.Warning("Applying database migration 0007-upload-e2ee")
+				return b.setupTxForMigration(tx).AutoMigrate(&Upload{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				b.log.Criticalf("Something went wrong. Please check database status manually")
+				return nil
+			},
+		}, {
+			ID: "0008-user-theme",
+			Migrate: func(tx *gorm.DB) error {
+				type User struct {
+					Theme string `json:"theme,omitempty"`
+				}
+
+				b.log.Warning("Applying database migration 0008-user-theme")
+				return b.setupTxForMigration(tx).AutoMigrate(&User{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				b.log.Criticalf("Something went wrong. Please check database status manually")
+				return nil
+			},
+		}, {
+			ID: "0009-file-is-text",
+			Migrate: func(tx *gorm.DB) error {
+				type File struct {
+					IsText bool `json:"isText"`
+				}
+
+				b.log.Warning("Applying database migration 0009-file-is-text")
+				return b.setupTxForMigration(tx).AutoMigrate(&File{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				b.log.Criticalf("Something went wrong. Please check database status manually")
+				return nil
+			},
+		}, {
+			ID: "0010-user-language",
+			Migrate: func(tx *gorm.DB) error {
+				type User struct {
+					Language string `json:"language,omitempty"`
+				}
+
+				b.log.Warning("Applying database migration 0010-user-language")
+				return b.setupTxForMigration(tx).AutoMigrate(&User{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				b.log.Criticalf("Something went wrong. Please check database status manually")
+				return nil
+			},
 		},
 	}
 

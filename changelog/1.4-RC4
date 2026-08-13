@@ -1,0 +1,40 @@
+Plik 1.4-RC4
+
+Hi, today we're releasing the fourth release candidate of the next plik major version 1.4 !
+
+Here is the changelog :
+
+New :
+ - End-to-End Encryption (E2EE) via Age (@bodji)
+ - MCP server for AI assistant integration
+ - Display user profile pictures from OAuth providers
+ - CLI --json output flag and redirect all prints to stderr
+ - Concurrent uploads with local status updates for improved UX
+ - Upload progress count and remaining file count in webapp
+ - Add icons to upload sidebar settings (@bodji)
+ - Enforce non-empty comments when feature is forced
+ - New Helm chart for plik (@bodji)
+
+Fix :
+ - Harden authentication providers and session handling
+ - Improve E2EE passphrase editing UX
+ - Upload error handling with per-file retry
+ - Add darwin/arm64 to client build targets
+ - Block messaging app link preview bots from downloading one-shot/streaming files
+ - S3 Content-MD5 compatibility mode for strict providers (@Yamiyorunoshura)
+
+Helm :
+ - Improve Helm chart after review
+ - Add dbPersistence PVC for SQLite database (v0.3.0) (@bodji)
+ - Improve secrets management (v0.3.1) (@bodji)
+ - Unify Helm chart release with app release pipeline
+
+Documentation :
+ - Reorder user documentation sections
+ - Add MCP upload example screenshot
+ - Add agentic dev workflows and contributing docs
+
+Binaries will be built with Go 1.26.0
+
+Faithfully,
+The plik team

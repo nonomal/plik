@@ -368,6 +368,65 @@ func TestUpdateUser_FailGrant(t *testing.T) {
 	require.False(t, updatedUser.IsAdmin)
 }
 
+func TestUpdateUser_FailQuotaMaxUserSize(t *testing.T) {
+	ctx := newTestingContext(common.NewConfiguration())
+
+	originalUser := &common.User{
+		ID:          "local:user",
+		Provider:    "local",
+		Login:       "user",
+		Password:    "password",
+		Email:       "user@root.gg",
+		Name:        "user",
+		MaxFileSize: 1234,
+		MaxUserSize: 5678,
+		MaxTTL:      1234,
+		IsAdmin:     false,
+	}
+	ctx.SetUser(originalUser)
+
+	err := ctx.GetMetadataBackend().CreateUser(originalUser)
+	require.NoError(t, err)
+
+	var updateParams = &struct {
+		ID          string `json:"id,omitempty"`
+		Provider    string `json:"provider"`
+		Login       string `json:"login,omitempty"`
+		Password    string `json:"password"`
+		Name        string `json:"name,omitempty"`
+		Email       string `json:"email,omitempty"`
+		IsAdmin     bool   `json:"admin"`
+		MaxFileSize int64  `json:"maxFileSize"`
+		MaxUserSize int64  `json:"maxUserSize"`
+		MaxTTL      int    `json:"maxTTL"`
+	}{
+		ID:          "local:user",
+		Provider:    "local",
+		Login:       "user",
+		Password:    "password",
+		Email:       "user@root.gg",
+		Name:        "user",
+		MaxFileSize: 1234,
+		MaxUserSize: -1, // Trying to set unlimited
+		MaxTTL:      1234,
+	}
+
+	userJSON, err := utils.ToJsonString(updateParams)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest("GET", "/", bytes.NewBufferString(userJSON))
+	require.NoError(t, err, "unable to create new request")
+
+	rr := ctx.NewRecorder(req)
+	UpdateUser(ctx, rr, req)
+	context.TestForbidden(t, rr, "can't edit your own quota")
+
+	// Verify the user was not modified
+	updatedUser, err := ctx.GetMetadataBackend().GetUser(originalUser.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(5678), updatedUser.MaxUserSize, "MaxUserSize should not have changed")
+}
+
 func TestUpdateUser_OKGrant(t *testing.T) {
 	ctx := newTestingContext(common.NewConfiguration())
 

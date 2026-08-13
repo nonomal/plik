@@ -1,15 +1,10 @@
 package common
 
 import (
-	"crypto/rand"
-	"math/big"
+	"slices"
 	"time"
 
 	"gorm.io/gorm"
-)
-
-var (
-	randRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 )
 
 // Upload object
@@ -19,8 +14,10 @@ type Upload struct {
 	ExtendTTL bool   `json:"extend_ttl"`
 
 	DownloadDomain string `json:"downloadDomain" gorm:"-"`
+	DownloadURL    string `json:"downloadURL,omitempty" gorm:"-"` // Computed: DownloadDomain + Path
 	RemoteIP       string `json:"uploadIp,omitempty"`
 	Comments       string `json:"comments"`
+	E2EE           string `json:"e2ee,omitempty" gorm:"column:e2ee"`
 
 	Files []*File `json:"files"`
 
@@ -41,6 +38,14 @@ type Upload struct {
 	CreatedAt time.Time      `json:"createdAt"`
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index:idx_upload_deleted_at"`
 	ExpireAt  *time.Time     `json:"expireAt" gorm:"index:idx_upload_expire_at"`
+}
+
+// validE2EESchemes is the whitelist of allowed e2ee scheme values
+var validE2EESchemes = []string{"age"}
+
+// IsValidE2EEScheme checks if the given scheme is a known E2EE encryption scheme
+func IsValidE2EEScheme(scheme string) bool {
+	return slices.Contains(validE2EESchemes, scheme)
 }
 
 // NewUpload creates a new upload object
@@ -91,7 +96,7 @@ func (upload *Upload) GetFileByReference(ref string) (file *File) {
 	return nil
 }
 
-// Sanitize clear some fields to hide sensible information from the API.
+// Sanitize clear some fields to hide sensitive information from the API.
 func (upload *Upload) Sanitize(config *Configuration) {
 	upload.RemoteIP = ""
 	upload.Login = ""
@@ -103,23 +108,11 @@ func (upload *Upload) Sanitize(config *Configuration) {
 		upload.UploadToken = ""
 	}
 
-	upload.DownloadDomain = config.DownloadDomain
+	upload.DownloadDomain = config.DownloadDomain // kept for backward compatibility
+	upload.DownloadURL = config.DownloadURL       // new: includes Path
 	for _, file := range upload.Files {
 		file.Sanitize()
 	}
-}
-
-// GenerateRandomID generates a random string with specified length.
-// Used to generate upload id, tokens, ...
-func GenerateRandomID(length int) string {
-	max := *big.NewInt(int64(len(randRunes)))
-	b := make([]rune, length)
-	for i := range b {
-		n, _ := rand.Int(rand.Reader, &max)
-		b[i] = randRunes[n.Int64()]
-	}
-
-	return string(b)
 }
 
 // ExtendExpirationDate extends the upload expiration date by TTL

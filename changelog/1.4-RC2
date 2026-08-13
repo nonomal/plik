@@ -1,0 +1,37 @@
+Plik 1.4-RC2
+
+Hi, today we're releasing the second release candidate of the next plik major version 1.4 !
+
+Here is the changelog :
+
+New :
+ - Webapp: WYSIWYG with code syntax highlighting for text file uploads
+ - Webapp: immediate navigation to download view during upload (#570)
+ - Webapp: filename validation (1024 char limit) and inline upload error banner
+ - Webapp: JSON validate & prettify buttons in code editor
+ - Webapp: code editor — fix highlighting, slim deps, lazy-load
+ - Webapp: add Documentation link to top bar
+ - Webapp: add 'Never expires' TTL option to upload sidebar
+ - Allow CLI client page access without authentication (#569)
+ - Allow building a Docker image on a pull request comment (@bodji)
+ - Optimize: extract client builds and publish as release assets
+
+Fix :
+ - Fix redirect for authenticated users away from login page
+ - Fix docs search bar overflow on mobile and add scrollable menu
+ - Fix flaky CI tests (dynamic port allocation + metrics timestamp)
+ - Fix Keycloak redirect URI handling (preserve ListenPort from config)
+ - Prevent pre-release (-RC) from overwriting Docker :latest tag
+ - Fix file cancel delay for server cleanup before refresh
+ - Fix docs deploy build pipeline
+
+Infrastructure :
+ - CI: parallelize test jobs and add make test-backend target
+ - Docs: add VitePress documentation site
+ - Docs: document available Prometheus metrics
+ - Bump markdown-it 14.1.0 → 14.1.1 (security)
+
+Binaries will be built with Go 1.26.0
+
+Faithfully,
+The plik team

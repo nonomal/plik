@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/root-gg/plik/server/server"
@@ -27,5 +29,7 @@ func clean(cmd *cobra.Command, args []string) {
 	plik.WithDataBackend(dataBackend)
 
 	// Delete expired upload and files
+	fmt.Println("Cleaning expired uploads and files...")
 	plik.Clean()
+	fmt.Println("Cleaning completed")
 }

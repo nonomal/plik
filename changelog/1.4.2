@@ -1,0 +1,62 @@
+Plik 1.4.2
+
+Hi, today we're releasing Plik 1.4.2 !
+
+Here is the changelog:
+
+New:
+ - Internationalization (i18n) — the webapp is now fully translated with a language picker.
+   12 languages supported: English (en), French (fr), German (de), Spanish (es), Italian (it),
+   Dutch (nl), Polish (pl), Portuguese (pt), Russian (ru), Swedish (sv), Hindi (hi), Chinese (zh).
+   Locales are hot-reloaded, fallback to English, and the language preference is persisted per user.
+ - GitHub OAuth2 authentication provider
+ - Default admin provisioning: set DefaultAdminLogin / DefaultAdminPassword (or env vars
+   PLIKD_DEFAULT_ADMIN_LOGIN / PLIKD_DEFAULT_ADMIN_PASSWORD) to automatically create a local
+   admin user on first startup — idempotent, skipped if the user already exists
+ - API token feature flag (FeatureApiTokens) to globally disable token creation and CLI auth
+ - CLI multi-profile support in .plikrc (profile composition with -P work,zip)
+ - CLI --update-plikrc to rewrite config in canonical format
+ - Prefixed opaque API tokens (plik_ prefix + Base62 + CRC32 checksum)
+ - S3 BucketLookup option for path-style addressing (Cloudflare R2, MinIO)
+ - S3 buffer-then-decide upload strategy with parallel multipart support
+ - AssumeHTTPS config option (replaces deprecated EnhancedWebSecurity): controls HSTS header and
+   Secure cookie flag; auto-enabled when SslEnabled=true or PlikDomain starts with https://.
+   EnhancedWebSecurity is still accepted but logs a deprecation warning at startup.
+ - Configurable archive compression (EnableArchiveCompression) to reduce CPU load
+ - Mermaid diagram rendering in Markdown preview (@bodji)
+ - MCP server profile-aware uploads and list_profiles tool
+ - Improved CLI --help with grouped sections (auto-injected into docs)
+
+Fix:
+ - Fix file row layout on mobile to improve filename display (#726)
+ - Fix download URL construction for DownloadDomain + Path (#723): fixes broken links in
+   subpath deployments; DownloadURL field now included in API Configuration and Upload responses
+ - Exclude SVG from inline file viewer to prevent XSS via crafted SVG uploads (#725)
+ - Fix extra separator in mobile navigation menu when authentication is disabled (#720)
+ - Fix light theme surface palette (#720)
+ - Fix subpath asset loading when deployed behind a reverse proxy (#714)
+ - Fix S3 signed integer types for PartSize and PartUploadConcurrency
+ - Fix syntax highlighting for all file extensions
+ - Fix navbar overflow on medium viewports
+
+Misc:
+ - Download security headers (X-Content-Type-Options, X-Frame-Options, CSP) are now set
+   unconditionally on all file/archive downloads — no config required
+ - Removed X-XSS-Protection header (deprecated by browsers, potentially harmful)
+ - /version endpoint now always strips build metadata (GoVersion, git revision, build host/user)
+   from public responses; still available for authenticated admins
+ - Limit body size middleware extracted for cleaner request handling
+
+ Dependency upgrades:
+ - Bump golang.org/x/net to v0.52.0 (fixes GO-2026-4559 HTTP/2 server panic)
+ - Bump golang.org/x/crypto to v0.49.0
+ - Bump cloud.google.com/go/storage to v1.61.3
+ - Bump google.golang.org/api to v0.273.0
+ - Bump Vite to v8.0.3 (Rolldown bundler, improved build performance)
+ - Bump Vue to 3.5.31, vue-router to 5.0.4, Tailwind CSS to 4.2.2
+ - Bump GitHub Actions: checkout v6, setup-go v6, upload-artifact v7, github-script v8, setup-helm v5
+
+Binaries will be built with Go 1.26.1
+
+Faithfully,
+The Plik team

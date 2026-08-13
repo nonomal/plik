@@ -33,7 +33,7 @@ func TestPagingQuery_Paginator(t *testing.T) {
 }
 
 func TestNewPagingResponse(t *testing.T) {
-	results := append([]interface{}{}, 1, 2, 3)
+	results := append([]any{}, 1, 2, 3)
 	before := "before"
 	after := "after"
 	pagingResponse := NewPagingResponse(results, &paginator.Cursor{Before: &before, After: &after})

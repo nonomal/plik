@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"fmt"
-	"gorm.io/gorm/clause"
 	"time"
 
 	"github.com/pilagod/gorm-cursor-paginator/v2/paginator"
@@ -35,28 +34,72 @@ func (b *Backend) GetUpload(ID string) (upload *common.Upload, err error) {
 	return upload, err
 }
 
-func getUploadsWhereClause(userID string, tokenStr string) *common.Upload {
-	whereClause := &common.Upload{}
-	if userID != "" {
-		whereClause.User = userID
+// UploadFilters holds optional filters for querying uploads.
+// Boolean pointers: nil = no filter, true = only matching.
+type UploadFilters struct {
+	User      string
+	Token     string
+	OneShot   *bool
+	Removable *bool
+	Stream    *bool
+	ExtendTTL *bool
+	Password  *bool // maps to ProtectedByPassword column
+	E2EE      *bool // maps to e2ee != '' check
+}
+
+// applyUploadFilters returns a scoped *gorm.DB with the given filters applied.
+// Uses struct-based Where for User/Token (portable quoting across PG/MySQL/SQLite)
+// and explicit Where clauses for booleans (GORM ignores zero-value bools in structs).
+func applyUploadFilters(stmt *gorm.DB, f UploadFilters) *gorm.DB {
+	if f.User != "" {
+		stmt = stmt.Where(&common.Upload{User: f.User})
 	}
-	if tokenStr != "" {
-		whereClause.Token = tokenStr
+	if f.Token != "" {
+		stmt = stmt.Where(&common.Upload{Token: f.Token})
 	}
-	return whereClause
+	if f.OneShot != nil {
+		stmt = stmt.Where("one_shot = ?", *f.OneShot)
+	}
+	if f.Removable != nil {
+		stmt = stmt.Where("removable = ?", *f.Removable)
+	}
+	if f.Stream != nil {
+		stmt = stmt.Where("stream = ?", *f.Stream)
+	}
+	if f.ExtendTTL != nil {
+		stmt = stmt.Where("extend_ttl = ?", *f.ExtendTTL)
+	}
+	if f.Password != nil {
+		stmt = stmt.Where("protected_by_password = ?", *f.Password)
+	}
+	if f.E2EE != nil {
+		if *f.E2EE {
+			stmt = stmt.Where("e2ee != ''")
+		} else {
+			stmt = stmt.Where("e2ee = '' OR e2ee IS NULL")
+		}
+	}
+	return stmt
+}
+
+// CountUploads return the total number of uploads matching the optional filters
+func (b *Backend) CountUploads(filters UploadFilters) (count int64, err error) {
+	stmt := b.db.Model(&common.Upload{})
+	stmt = applyUploadFilters(stmt, filters)
+
+	err = stmt.Count(&count).Error
+	return count, err
 }
 
 // GetUploads return uploads from DB
-// userID and tokenStr are filters
 // set withFiles to also fetch the files
-func (b *Backend) GetUploads(userID string, tokenStr string, withFiles bool, pagingQuery *common.PagingQuery) (uploads []*common.Upload, cursor *paginator.Cursor, err error) {
+func (b *Backend) GetUploads(filters UploadFilters, withFiles bool, pagingQuery *common.PagingQuery) (uploads []*common.Upload, cursor *paginator.Cursor, err error) {
 	if pagingQuery == nil {
 		return nil, nil, fmt.Errorf("missing paging query")
 	}
 
-	stmt := b.db.
-		Model(&common.Upload{}).
-		Where(getUploadsWhereClause(userID, tokenStr))
+	stmt := b.db.Model(&common.Upload{})
+	stmt = applyUploadFilters(stmt, filters)
 
 	if withFiles {
 		stmt = stmt.Preload("Files")
@@ -77,59 +120,47 @@ func (b *Backend) GetUploads(userID string, tokenStr string, withFiles bool, pag
 }
 
 // GetUploadsSortedBySize return uploads from DB sorted by size
-// userID and tokenStr are filters
 // set withFiles to also fetch the files
-func (b *Backend) GetUploadsSortedBySize(userID string, tokenStr string, withFiles bool, pagingQuery *common.PagingQuery) (uploads []*common.Upload, cursor *paginator.Cursor, err error) {
+func (b *Backend) GetUploadsSortedBySize(filters UploadFilters, withFiles bool, pagingQuery *common.PagingQuery) (uploads []*common.Upload, cursor *paginator.Cursor, err error) {
 	if pagingQuery == nil {
 		return nil, nil, fmt.Errorf("missing paging query")
 	}
 
-	// Enhanced type with total upload size field
-	type Upload struct {
-		common.Upload
-		Size int64 `json:"size"`
+	// Lightweight struct for cursor pagination — only needs ID and the sort key
+	type uploadRef struct {
+		ID   string
+		Size int64
 	}
-	var res []*Upload
+	var refs []*uploadRef
 
-	// This block is needed to generate the correctly quoted where clause
-	// `files`.`status` = ? or "files"."status" = ? depending on the database driver
-	// This is needed to specify the right table name in the WHERE clause because the uploads table is used by default
-	fileStatusStatement := b.db.Model(&common.File{}).Statement                                                             // Get a new statement
-	clause.Eq{Column: clause.Column{Table: "Files", Name: "status"}, Value: common.FileUploaded}.Build(fileStatusStatement) // Build the SQL expression
-	fileStatusWhereClause := fileStatusStatement.Statement.SQL.String()                                                     // Get the SQL string
+	// Subquery: compute total file size per upload (only counting uploaded files)
+	sizeSubquery := b.db.
+		Table("files").
+		Select("upload_id, SUM(size) as total_size").
+		Where("status = ?", common.FileUploaded).
+		Group("upload_id")
 
 	stmt := b.db.
-		Model(&Upload{}).
-		Select("uploads.*, sum(size) as size").
-		// Joins() selects all fields from the joined table by default
-		InnerJoins("Files", b.db.Select("")).
-		// Only take into account uploaded files (needs to be first where clause for postgres)
-		Where(fileStatusWhereClause, common.FileUploaded).
-		Where(getUploadsWhereClause(userID, tokenStr))
-
-	// .Group("<column>") does not allow to specify the table name to avoid "ambiguous column id" error
-	stmt.Statement.AddClause(clause.GroupBy{
-		Columns: []clause.Column{{Table: "uploads", Name: "id"}},
-	})
-
-	if withFiles {
-		stmt = stmt.Preload("Files")
-	}
+		Model(&common.Upload{}).
+		Select("uploads.id, COALESCE(sub.total_size, 0) as size").
+		Joins("LEFT JOIN (?) AS sub ON sub.upload_id = uploads.id", sizeSubquery)
+	stmt = applyUploadFilters(stmt, filters)
 
 	// Setup paginator
 	p := pagingQuery.Paginator()
 	p.SetRules([]paginator.Rule{
 		{
-			Key:     "Size", // Name of the field in the struct
-			SQLRepr: "size", // Name of the field in the SQL query results
+			Key:     "Size",
+			SQLRepr: "COALESCE(sub.total_size, 0)",
 		},
 		{
-			Key: "ID",
+			Key:     "ID",
+			SQLRepr: "uploads.id",
 		},
 	}...)
 
-	// Execute the query
-	result, c, err := p.Paginate(stmt, &res)
+	// Phase 1: paginate to get sorted upload IDs
+	result, c, err := p.Paginate(stmt, &refs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -137,18 +168,44 @@ func (b *Backend) GetUploadsSortedBySize(userID string, tokenStr string, withFil
 		return nil, nil, result.Error
 	}
 
-	// Cast the results back to *common.Uploads the upload size is only used as a sorting tool
-	// and does not need to escape this function for now
-	for _, upload := range res {
-		uploads = append(uploads, &upload.Upload)
+	if len(refs) == 0 {
+		return uploads, &c, nil
 	}
 
-	return uploads, &c, err
+	// Phase 2: load full uploads by IDs with native Preload
+	ids := make([]string, len(refs))
+	for i, ref := range refs {
+		ids[i] = ref.ID
+	}
+
+	query := b.db.Where("id IN ?", ids)
+	if withFiles {
+		query = query.Preload("Files")
+	}
+
+	err = query.Find(&uploads).Error
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Reorder to match the pagination sort order
+	byID := make(map[string]*common.Upload, len(uploads))
+	for _, u := range uploads {
+		byID[u.ID] = u
+	}
+	uploads = uploads[:0]
+	for _, ref := range refs {
+		if u, ok := byID[ref.ID]; ok {
+			uploads = append(uploads, u)
+		}
+	}
+
+	return uploads, &c, nil
 }
 
-// RemoveUpload soft delete upload ( just set upload.DeletedAt field ) and remove all files
+// RemoveUpload soft delete upload ( just set upload.DeletedAt field ) and remove all files.
 // The upload metadata will still be present in the metadata database as well as all the files
-// Until all the files are deleted from the data backend and
+// until all the files are deleted from the data backend and DeleteRemovedUploads purges them.
 func (b *Backend) RemoveUpload(uploadID string) (err error) {
 	err = b.db.Transaction(func(tx *gorm.DB) (err error) {
 		err = b.removeUploadFiles(tx, uploadID)
@@ -185,6 +242,7 @@ func (b *Backend) RemoveExpiredUploads() (removed int, err error) {
 
 		err := b.RemoveUpload(upload.ID)
 		if err != nil {
+			b.log.Warningf("unable to remove expired upload %s : %s", upload.ID, err)
 			errors = append(errors, err)
 			continue
 		}
@@ -212,6 +270,7 @@ func (b *Backend) DeleteRemovedUploads() (removed int, err error) {
 	defer func() { _ = rows.Close() }()
 
 	errors := 0
+	fixups := 0
 	for rows.Next() {
 		upload := &common.Upload{}
 		err = b.db.ScanRows(rows, upload)
@@ -243,9 +302,8 @@ func (b *Backend) DeleteRemovedUploads() (removed int, err error) {
 					return err
 				}
 
-				// Hack the counters
-				errors++
-				removed--
+				// This upload needs another cleaning cycle, don't count it as removed or as an error
+				fixups++
 
 				// We have to return nil to let the transaction commit to update the files status
 				return nil
@@ -272,6 +330,10 @@ func (b *Backend) DeleteRemovedUploads() (removed int, err error) {
 			removed++
 		}
 	}
+
+	// Fixup transactions return nil to commit, so they increment removed.
+	// Subtract them to get the actual purged count.
+	removed -= fixups
 
 	if errors > 0 {
 		return removed, fmt.Errorf("unable to purge %d deleted uploads", errors)

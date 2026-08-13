@@ -30,11 +30,11 @@ func TestAPIMockServer(t *testing.T) {
 	handler := http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
 		_, _ = resp.Write([]byte("ok"))
 	})
-	cancel, err := StartAPIMockServer(handler)
+	port, cancel, err := StartAPIMockServer(handler)
 	defer cancel()
 	require.NoError(t, err, "unable to start server")
 
-	req, err := http.NewRequest("GET", "http://127.0.0.1:"+strconv.Itoa(APIMockServerDefaultPort), nil)
+	req, err := http.NewRequest("GET", "http://127.0.0.1:"+strconv.Itoa(port), nil)
 	require.NoError(t, err, "unable to create HTTP request")
 
 	resp, err := getHTTPClient().Do(req)
@@ -48,17 +48,18 @@ func TestAPIMockServer(t *testing.T) {
 }
 
 func TestAPIMockServerTwice(t *testing.T) {
-	cancel, err := StartAPIMockServer(DummyHandler)
+	port, cancel, err := StartAPIMockServer(DummyHandler)
 	defer cancel()
 	require.NoError(t, err, "unable to start server")
 
-	cancel2, err := StartAPIMockServer(DummyHandler)
+	_, cancel2, err := StartAPIMockServerCustomPort(port, DummyHandler)
 	defer cancel2()
 	require.Error(t, err, "able to start server twice")
 }
 
 func TestAPIMockServerNoServer(t *testing.T) {
-	err := CheckHTTPServer(APIMockServerDefaultPort)
+	// Use a port that is definitely not in use
+	err := CheckHTTPServer(19999)
 	require.Error(t, err, "missing error")
 	require.Contains(t, err.Error(), "timeout", "invalid error")
 }

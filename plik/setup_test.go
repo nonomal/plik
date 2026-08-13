@@ -25,6 +25,9 @@ var dataBackend data.Backend
 // Default metadata backend config
 var metadataBackendConfig = &metadata.Config{Driver: "sqlite3", ConnectionString: "/tmp/plik.test.db", EraseFirst: true}
 
+// testConfig holds the full configuration loaded from PLIKD_CONFIG (if set)
+var testConfig *common.Configuration
+
 func TestMain(m *testing.M) {
 	var err error
 
@@ -38,7 +41,6 @@ func TestMain(m *testing.M) {
 		os.Exit(code)
 	}()
 
-	var testConfig *common.Configuration
 	testConfigPath := os.Getenv("PLIKD_CONFIG")
 	if testConfigPath != "" {
 		fmt.Println("loading test config : " + testConfigPath)
@@ -57,12 +59,13 @@ func TestMain(m *testing.M) {
 		if os.Getenv("data_backend") != "" {
 			testConfig.DataBackend = os.Getenv("data_backend")
 			if os.Getenv("data_backend_config") != "" {
-				var dataBackendConfig = make(map[string]interface{})
+				var dataBackendConfig = make(map[string]any)
 				err = json.Unmarshal([]byte(os.Getenv("data_backend_config")), &dataBackendConfig)
 				if err != nil {
 					fmt.Printf("Unable to deserialize data_backend_config : %s\n", err)
 					os.Exit(1)
 				}
+				testConfig.DataBackendConfig = dataBackendConfig
 			}
 		}
 	}
@@ -111,9 +114,27 @@ func TestMain(m *testing.M) {
 func newPlikServerAndClient() (ps *server.PlikServer, pc *Client) {
 	config := common.NewConfiguration()
 	config.ListenAddress = "127.0.0.1"
-	config.ListenPort = common.APIMockServerDefaultPort
+	config.ListenPort = 0 // Use ephemeral port to avoid port conflicts
 	config.AutoClean(false)
 	//config.Debug = true
+
+	// Copy settings from test config (PLIKD_CONFIG) if available
+	if testConfig != nil {
+		// Copy OIDC settings; FeatureAuthentication and FeatureLocalLogin
+		// are intentionally left for each test to set as needed.
+		config.OIDCClientID = testConfig.OIDCClientID
+		config.OIDCClientSecret = testConfig.OIDCClientSecret
+		config.OIDCProviderURL = testConfig.OIDCProviderURL
+		config.OIDCProviderName = testConfig.OIDCProviderName
+
+		// Use the configured listen port when running with an external
+		// config (e.g., test-backends with Keycloak) so the port matches
+		// Keycloak's allowed redirect URIs.
+		if testConfig.ListenPort != 0 {
+			config.ListenPort = testConfig.ListenPort
+		}
+	}
+
 	_ = config.Initialize()
 	ps = server.NewPlikServer(config)
 
@@ -124,17 +145,13 @@ func newPlikServerAndClient() (ps *server.PlikServer, pc *Client) {
 	ps.WithMetadataBackend(metadataBackend)
 
 	ps.WithDataBackend(dataBackend)
-	pc = NewClient(config.GetServerURL().String())
+	// Client URL will be set after Start() once the actual port is known
+	pc = NewClient(fmt.Sprintf("http://127.0.0.1:%d", common.APIMockServerDefaultPort))
 	return ps, pc
 }
 
 // /!\ Backends ARE NOT automatically cleared between tests /!\
 func start(ps *server.PlikServer) (err error) {
-	//common.CheckHTTPServer(ps.GetConfig().ListenPort)
-	//if err == nil {
-	//	return fmt.Errorf("plik server is already running")
-	//}
-
 	err = ps.Start()
 	if err != nil {
 		return err
@@ -148,16 +165,22 @@ func start(ps *server.PlikServer) (err error) {
 	return nil
 }
 
+// startWithClient starts the server and updates the client URL with the actual port
+func startWithClient(ps *server.PlikServer, pc *Client) (err error) {
+	err = start(ps)
+	if err != nil {
+		return err
+	}
+	pc.URL = ps.GetConfig().GetServerURL().String()
+	return nil
+}
+
 // /!\ Backends ARE NOT automatically cleared between tests /!\
 func shutdown(ps *server.PlikServer) {
 	err := ps.ShutdownNow()
 	if err != nil {
 		panic("unable to shutdown server " + err.Error())
 	}
-	//common.CheckHTTPServer(ps.GetConfig().ListenPort)
-	//if err == nil {
-	//	panic("still able to join plik server after shutdown")
-	//}
 }
 
 type LockedReader struct {

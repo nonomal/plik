@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 	api_oauth2 "google.golang.org/api/oauth2/v2"
@@ -52,7 +52,7 @@ func TestGoogleLogin(t *testing.T) {
 	URL, err := url.Parse(string(respBody))
 	require.NoError(t, err, "unable to parse google auth url")
 
-	state, err := jwt.Parse(URL.Query().Get("state"), func(token *jwt.Token) (interface{}, error) {
+	state, err := jwt.Parse(URL.Query().Get("state"), func(token *jwt.Token) (any, error) {
 		// Verify signing algorithm
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			t.Fatalf("Unexpected siging method : %v", token.Header["alg"])
@@ -76,6 +76,13 @@ func TestGoogleLogin(t *testing.T) {
 	require.NoError(t, err, "invalid oauth2 state")
 
 	require.Equal(t, origin+"/auth/google/callback", state.Claims.(jwt.MapClaims)["redirectURL"].(string), "invalid state origin")
+
+	// PKCE: code_challenge and method must be present in the auth URL
+	require.NotEmpty(t, URL.Query().Get("code_challenge"), "code_challenge must be present in auth URL")
+	require.Equal(t, "S256", URL.Query().Get("code_challenge_method"), "code_challenge_method must be S256")
+
+	// PKCE: verifier must be embedded in the state JWT
+	require.NotEmpty(t, state.Claims.(jwt.MapClaims)["pkceVerifier"], "pkceVerifier must be present in state JWT")
 }
 
 func TestGoogleLoginAuthDisabled(t *testing.T) {
@@ -110,11 +117,30 @@ func TestGoogleLoginGoogleAuthDisabled(t *testing.T) {
 	context.TestBadRequest(t, rr, "Google authentication is disabled")
 }
 
+func TestGoogleLoginMissingCredentials(t *testing.T) {
+	ctx := newTestingContext(common.NewConfiguration())
+
+	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
+	ctx.GetConfig().GoogleAuthentication = true
+
+	req, err := http.NewRequest("GET", "/auth/google/login", bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	req.Header.Set("referer", "http://plik.root.gg")
+
+	rr := ctx.NewRecorder(req)
+	GoogleLogin(ctx, rr, req)
+
+	context.TestInternalServerError(t, rr, "missing Google API credentials")
+}
+
 func TestGoogleLoginMissingReferer(t *testing.T) {
 	ctx := newTestingContext(common.NewConfiguration())
 
 	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
 	ctx.GetConfig().GoogleAuthentication = true
+	ctx.GetConfig().GoogleAPIClientID = "google_app_id"
+	ctx.GetConfig().GoogleAPISecret = "google_app_secret"
 
 	req, err := http.NewRequest("GET", "/auth/google/login", bytes.NewBuffer([]byte{}))
 	require.NoError(t, err, "unable to create new request")
@@ -151,9 +177,10 @@ func TestGoogleCallback(t *testing.T) {
 	}
 
 	googleUser := api_oauth2.Userinfo{
-		Id:    "plik",
-		Email: "plik@root.gg",
-		Name:  "plik.root.gg",
+		Id:      "plik",
+		Email:   "plik@root.gg",
+		Name:    "plik.root.gg",
+		Picture: "https://lh3.googleusercontent.com/photo.jpg",
 	}
 
 	user := common.NewUser("google", "plik")
@@ -181,7 +208,7 @@ func TestGoogleCallback(t *testing.T) {
 		resp.WriteHeader(http.StatusInternalServerError)
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 
@@ -198,7 +225,7 @@ func TestGoogleCallback(t *testing.T) {
 	GoogleCallback(ctx, rr, req)
 
 	// Check the status code is what we expect.
-	require.Equal(t, 301, rr.Code, "handler returned wrong status code")
+	require.Equal(t, 302, rr.Code, "handler returned wrong status code")
 
 	respBody, err := io.ReadAll(rr.Body)
 	require.NoError(t, err, "unable to read response body")
@@ -219,6 +246,13 @@ func TestGoogleCallback(t *testing.T) {
 
 	require.NotEqual(t, "", sessionCookie, "missing plik session cookie")
 	require.NotEqual(t, "", xsrfCookie, "missing plik xsrf cookie")
+
+	// Verify that user fields were updated on re-login
+	updated, err := ctx.GetMetadataBackend().GetUser(common.GetUserID(common.ProviderGoogle, googleUser.Email))
+	require.NoError(t, err)
+	require.NotNil(t, updated, "missing user")
+	require.Equal(t, googleUser.Name, updated.Name, "user name not updated on re-login")
+	require.Equal(t, googleUser.Picture, updated.ProfilePicture, "user profile picture not updated on re-login")
 }
 
 func TestGoogleCallbackAuthDisabled(t *testing.T) {
@@ -482,9 +516,10 @@ func TestGoogleCallbackCreateUser(t *testing.T) {
 	}
 
 	googleUser := api_oauth2.Userinfo{
-		Id:    "plik",
-		Email: "plik@root.gg",
-		Name:  "plik.root.gg",
+		Id:      "plik",
+		Email:   "plik@root.gg",
+		Name:    "plik.root.gg",
+		Picture: "https://lh3.googleusercontent.com/photo.jpg",
 	}
 
 	handler := func(resp http.ResponseWriter, req *http.Request) {
@@ -505,7 +540,7 @@ func TestGoogleCallbackCreateUser(t *testing.T) {
 		resp.WriteHeader(http.StatusInternalServerError)
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 
@@ -522,7 +557,7 @@ func TestGoogleCallbackCreateUser(t *testing.T) {
 	GoogleCallback(ctx, rr, req)
 
 	// Check the status code is what we expect.
-	require.Equal(t, 301, rr.Code, "handler returned wrong status code")
+	require.Equal(t, 302, rr.Code, "handler returned wrong status code")
 
 	respBody, err := io.ReadAll(rr.Body)
 	require.NoError(t, err, "unable to read response body")
@@ -548,6 +583,7 @@ func TestGoogleCallbackCreateUser(t *testing.T) {
 	require.NotNil(t, user, "missing user")
 	require.Equal(t, googleUser.Email, user.Email, "invalid user email")
 	require.Equal(t, googleUser.Name, user.Name, "invalid user name")
+	require.Equal(t, googleUser.Picture, user.ProfilePicture, "invalid user profile picture")
 }
 func TestGoogleCallbackCreateUserNotWhitelisted(t *testing.T) {
 	ctx := newTestingContext(common.NewConfiguration())
@@ -599,7 +635,7 @@ func TestGoogleCallbackCreateUserNotWhitelisted(t *testing.T) {
 		resp.WriteHeader(http.StatusInternalServerError)
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 
@@ -616,4 +652,82 @@ func TestGoogleCallbackCreateUserNotWhitelisted(t *testing.T) {
 	GoogleCallback(ctx, rr, req)
 
 	context.TestForbidden(t, rr, "unable to create user from untrusted source IP address")
+}
+
+func TestGoogleCallbackExistingUserInvalidDomain(t *testing.T) {
+	ctx := newTestingContext(common.NewConfiguration())
+
+	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
+	ctx.GetConfig().GoogleAuthentication = true
+	ctx.GetConfig().GoogleAPIClientID = "google_api_client_id"
+	ctx.GetConfig().GoogleAPISecret = "google_api_secret"
+	ctx.GetConfig().GoogleValidDomains = []string{"allowed.com"}
+
+	/* Generate state */
+	state := jwt.New(jwt.SigningMethodHS256)
+	state.Claims.(jwt.MapClaims)["redirectURL"] = "https://plik.root.gg/auth/google/callback"
+	state.Claims.(jwt.MapClaims)["expire"] = time.Now().Add(time.Minute * 5).Unix()
+
+	oauthToken := struct {
+		AccessToken  string `json:"access_token"`
+		TokenType    string `json:"token_type"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int32  `json:"expires_in"`
+	}{
+		AccessToken:  "access_token",
+		TokenType:    "token_type",
+		RefreshToken: "refresh_token",
+		ExpiresIn:    int32(time.Now().Add(5 * time.Minute).Unix()),
+	}
+
+	// User email domain does NOT match GoogleValidDomains
+	googleUser := api_oauth2.Userinfo{
+		Id:    "plik",
+		Email: "plik@root.gg",
+		Name:  "plik.root.gg",
+	}
+
+	// Pre-create user (simulates previously allowed domain)
+	user := common.NewUser(common.ProviderGoogle, googleUser.Email)
+	user.Login = googleUser.Email
+	user.Name = googleUser.Name
+	user.Email = googleUser.Email
+	err := ctx.GetMetadataBackend().CreateUser(user)
+	require.NoError(t, err, "unable to create test user")
+
+	handler := func(resp http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/token" {
+			responseBody, err := json.Marshal(oauthToken)
+			require.NoError(t, err, "unable to marshal oauth token")
+			resp.Header().Set("Content-Type", "application/json")
+			resp.Write(responseBody)
+			return
+		}
+		if req.URL.Path == "/oauth2/v2/userinfo" {
+			responseBody, err := json.Marshal(googleUser)
+			require.NoError(t, err, "unable to marshal oauth token")
+			resp.Header().Set("Content-Type", "application/json")
+			resp.Write(responseBody)
+			return
+		}
+		resp.WriteHeader(http.StatusInternalServerError)
+	}
+
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
+	defer shutdown()
+	require.NoError(t, err, "unable to start api mock server")
+
+	/* Sign state */
+	b64state, err := state.SignedString([]byte(ctx.GetConfig().GoogleAPISecret))
+	require.NoError(t, err, "unable to sign state")
+
+	req, err := http.NewRequest("GET", "/auth/google/login?code=code&state="+url.QueryEscape(b64state), bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	req = req.WithContext(gocontext.WithValue(gocontext.TODO(), googleEndpointContextKey, oauth2TestEndpoint))
+
+	rr := ctx.NewRecorder(req)
+	GoogleCallback(ctx, rr, req)
+
+	context.TestForbidden(t, rr, "unauthorized domain name")
 }

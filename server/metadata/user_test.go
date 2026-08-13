@@ -93,28 +93,185 @@ func TestBackend_GetUsers(t *testing.T) {
 	b := newTestMetadataBackend()
 	defer shutdownTestMetadataBackend(b)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		user := common.NewUser(common.ProviderLocal, fmt.Sprintf("user_%d", i))
 		createUser(t, b, user)
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		user := common.NewUser(common.ProviderGoogle, fmt.Sprintf("user_%d", i))
 		createUser(t, b, user)
 	}
 
-	users, cursor, err := b.GetUsers("", false, common.NewPagingQuery().WithLimit(100))
+	users, cursor, err := b.GetUsers("", nil, false, common.NewPagingQuery().WithLimit(100))
 	require.NoError(t, err, "get user error")
 	require.NotNil(t, cursor, "invalid nil cursor")
 	require.Len(t, users, 10, "invalid user length")
 
-	users, cursor, err = b.GetUsers(common.ProviderGoogle, false, common.NewPagingQuery().WithLimit(100))
+	users, cursor, err = b.GetUsers(common.ProviderGoogle, nil, false, common.NewPagingQuery().WithLimit(100))
 	require.NoError(t, err, "get user error")
 	require.NotNil(t, cursor, "invalid nil cursor")
 	require.Len(t, users, 5, "invalid user length")
 
-	users, cursor, err = b.GetUsers("", false, nil)
+	users, cursor, err = b.GetUsers("", nil, false, nil)
 	require.Error(t, err, "get user error expected")
+}
+
+func TestBackend_GetUsers_AdminFilter(t *testing.T) {
+	b := newTestMetadataBackend()
+	defer shutdownTestMetadataBackend(b)
+
+	for i := range 3 {
+		user := common.NewUser(common.ProviderLocal, fmt.Sprintf("admin_%d", i))
+		user.IsAdmin = true
+		createUser(t, b, user)
+	}
+
+	for i := range 5 {
+		user := common.NewUser(common.ProviderLocal, fmt.Sprintf("user_%d", i))
+		createUser(t, b, user)
+	}
+
+	// Filter admins only
+	adminTrue := true
+	users, _, err := b.GetUsers("", &adminTrue, false, common.NewPagingQuery().WithLimit(100))
+	require.NoError(t, err, "get admin users error")
+	require.Len(t, users, 3, "invalid admin user count")
+	for _, u := range users {
+		require.True(t, u.IsAdmin, "expected admin user")
+	}
+
+	// Filter non-admins only
+	adminFalse := false
+	users, _, err = b.GetUsers("", &adminFalse, false, common.NewPagingQuery().WithLimit(100))
+	require.NoError(t, err, "get non-admin users error")
+	require.Len(t, users, 5, "invalid non-admin user count")
+	for _, u := range users {
+		require.False(t, u.IsAdmin, "expected non-admin user")
+	}
+
+	// No filter (nil) returns all
+	users, _, err = b.GetUsers("", nil, false, common.NewPagingQuery().WithLimit(100))
+	require.NoError(t, err, "get all users error")
+	require.Len(t, users, 8, "invalid total user count")
+}
+
+func TestBackend_SearchUsers(t *testing.T) {
+	b := newTestMetadataBackend()
+	defer shutdownTestMetadataBackend(b)
+
+	// Create test users with varied logins / names / emails
+	alice := common.NewUser(common.ProviderLocal, "alice")
+	alice.Login = "alice"
+	alice.Name = "Alice Wonderland"
+	alice.Email = "alice@example.com"
+	createUser(t, b, alice)
+
+	bob := common.NewUser(common.ProviderLocal, "bob")
+	bob.Login = "bob"
+	bob.Name = "Bob Builder"
+	bob.Email = "bob@example.com"
+	createUser(t, b, bob)
+
+	charlie := common.NewUser(common.ProviderGoogle, "charlie")
+	charlie.Login = "charlie"
+	charlie.Name = "Charlie Chaplin"
+	charlie.Email = "charlie@example.com"
+	charlie.IsAdmin = true
+	createUser(t, b, charlie)
+
+	// Search by login prefix
+	users, err := b.SearchUsers("ali", "", nil, 5)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	require.Equal(t, "alice", users[0].Login)
+
+	// Search matches name
+	users, err = b.SearchUsers("Builder", "", nil, 5)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	require.Equal(t, "bob", users[0].Login)
+
+	// Search matches email
+	users, err = b.SearchUsers("charlie@", "", nil, 5)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	require.Equal(t, "charlie", users[0].Login)
+
+	// Search matches multiple — results sorted by login
+	users, err = b.SearchUsers("example.com", "", nil, 10)
+	require.NoError(t, err)
+	require.Len(t, users, 3)
+	require.Equal(t, "alice", users[0].Login)
+	require.Equal(t, "bob", users[1].Login)
+	require.Equal(t, "charlie", users[2].Login)
+
+	// No results
+	users, err = b.SearchUsers("zzz_no_match", "", nil, 5)
+	require.NoError(t, err)
+	require.Len(t, users, 0)
+
+	// Empty query returns error
+	_, err = b.SearchUsers("", "", nil, 5)
+	require.Error(t, err)
+}
+
+func TestBackend_SearchUsers_WithFilters(t *testing.T) {
+	b := newTestMetadataBackend()
+	defer shutdownTestMetadataBackend(b)
+
+	alice := common.NewUser(common.ProviderLocal, "alice")
+	alice.Login = "alice"
+	createUser(t, b, alice)
+
+	bob := common.NewUser(common.ProviderGoogle, "bob")
+	bob.Login = "bob"
+	bob.IsAdmin = true
+	createUser(t, b, bob)
+
+	// Both have "l" or "b" in their ID — search for common substring "local:" or just use broad search
+	// Search all, filter by provider
+	users, err := b.SearchUsers("alice", "local", nil, 5)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	require.Equal(t, "alice", users[0].Login)
+
+	users, err = b.SearchUsers("alice", "google", nil, 5)
+	require.NoError(t, err)
+	require.Len(t, users, 0)
+
+	// Search all, filter by admin
+	adminTrue := true
+	users, err = b.SearchUsers("bob", "", &adminTrue, 5)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	require.Equal(t, "bob", users[0].Login)
+
+	adminFalse := false
+	users, err = b.SearchUsers("bob", "", &adminFalse, 5)
+	require.NoError(t, err)
+	require.Len(t, users, 0)
+}
+
+func TestBackend_SearchUsers_Limit(t *testing.T) {
+	b := newTestMetadataBackend()
+	defer shutdownTestMetadataBackend(b)
+
+	for i := range 10 {
+		user := common.NewUser(common.ProviderLocal, fmt.Sprintf("user_%02d", i))
+		user.Login = fmt.Sprintf("user_%02d", i)
+		createUser(t, b, user)
+	}
+
+	// Limit 3
+	users, err := b.SearchUsers("user_", "", nil, 3)
+	require.NoError(t, err)
+	require.Len(t, users, 3)
+
+	// Limit > 20 gets capped to 20
+	users, err = b.SearchUsers("user_", "", nil, 50)
+	require.NoError(t, err)
+	require.Len(t, users, 10) // only 10 exist
 }
 
 func TestBackend_DeleteUser(t *testing.T) {
@@ -146,20 +303,20 @@ func TestBackend_ForEachUserUploads(t *testing.T) {
 	token := user.NewToken()
 	createUser(t, b, user)
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		upload := &common.Upload{}
 		upload.User = user.ID
 		createUpload(t, b, upload)
 	}
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		upload := &common.Upload{}
 		upload.User = user.ID
 		upload.Token = token.Token
 		createUpload(t, b, upload)
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		upload := &common.Upload{}
 		upload.User = "blah"
 		createUpload(t, b, upload)
@@ -201,32 +358,73 @@ func TestBackend_DeleteUserUploads(t *testing.T) {
 	token := user.NewToken()
 	createUser(t, b, user)
 
-	for i := 0; i < 2; i++ {
-		upload := &common.Upload{}
-		upload.User = user.ID
-		createUpload(t, b, upload)
-	}
-
-	for i := 0; i < 5; i++ {
+	// Create uploads with files in various states
+	var tokenUploadIDs []string
+	for range 5 {
 		upload := &common.Upload{}
 		upload.User = user.ID
 		upload.Token = token.Token
 		createUpload(t, b, upload)
+		tokenUploadIDs = append(tokenUploadIDs, upload.ID)
+		// Add a file with "uploaded" status (has data on disk)
+		file := upload.NewFile()
+		file.Status = common.FileUploaded
+		err := b.CreateFile(file)
+		require.NoError(t, err)
+		// Add a file with "missing" status (no data on disk)
+		file2 := upload.NewFile()
+		file2.Status = common.FileMissing
+		err = b.CreateFile(file2)
+		require.NoError(t, err)
 	}
 
-	for i := 0; i < 10; i++ {
+	var otherUploadIDs []string
+	for range 2 {
+		upload := &common.Upload{}
+		upload.User = user.ID
+		createUpload(t, b, upload)
+		otherUploadIDs = append(otherUploadIDs, upload.ID)
+	}
+
+	for range 10 {
 		upload := &common.Upload{}
 		upload.User = "blah"
 		createUpload(t, b, upload)
 	}
 
+	// Delete only token uploads
 	deleted, err := b.RemoveUserUploads(user.ID, token.Token)
-	require.NoError(t, err, "for each user upload error")
+	require.NoError(t, err, "remove user uploads error")
 	require.Equal(t, 5, deleted, "invalid upload count")
 
+	// Verify file statuses were batch-updated
+	for _, id := range tokenUploadIDs {
+		upload, err := b.GetUpload(id)
+		require.NoError(t, err)
+		require.Nil(t, upload, "upload should be soft-deleted")
+
+		// Check file statuses via unscoped query
+		var files []*common.File
+		err = b.db.Where(&common.File{UploadID: id}).Find(&files).Error
+		require.NoError(t, err)
+		require.Len(t, files, 2, "expected 2 files per upload")
+		for _, f := range files {
+			if f.Status == common.FileRemoved || f.Status == common.FileDeleted {
+				continue
+			}
+			t.Errorf("unexpected file status %q for file %s", f.Status, f.ID)
+		}
+	}
+
+	// Other user uploads should be unaffected
 	deleted, err = b.RemoveUserUploads(user.ID, "")
-	require.NoError(t, err, "for each user upload error")
+	require.NoError(t, err, "remove user uploads error")
 	require.Equal(t, 2, deleted, "invalid upload count")
+
+	// No-op when nothing left
+	deleted, err = b.RemoveUserUploads(user.ID, "")
+	require.NoError(t, err, "remove user uploads error")
+	require.Equal(t, 0, deleted, "should be zero")
 }
 
 func TestBackend_CountUsers(t *testing.T) {
@@ -236,7 +434,7 @@ func TestBackend_CountUsers(t *testing.T) {
 	user := common.NewUser(common.ProviderLocal, "user")
 	createUser(t, b, user)
 
-	count, err := b.CountUsers()
+	count, err := b.CountUsers("", nil)
 	require.NoError(t, err, "count users error")
-	require.Equal(t, 1, count, "invalid user count")
+	require.Equal(t, int64(1), count, "invalid user count")
 }

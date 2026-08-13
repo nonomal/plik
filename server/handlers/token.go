@@ -17,6 +17,12 @@ import (
 // CreateToken create a new token
 func CreateToken(ctx *context.Context, resp http.ResponseWriter, req *http.Request) {
 
+	// Check feature flag
+	if ctx.GetConfig().FeatureApiTokens == common.FeatureDisabled {
+		ctx.BadRequest("API tokens are disabled")
+		return
+	}
+
 	// Get user from context
 	user := ctx.GetUser()
 	if user == nil {
@@ -26,8 +32,6 @@ func CreateToken(ctx *context.Context, resp http.ResponseWriter, req *http.Reque
 
 	// Read request body
 	defer func() { _ = req.Body.Close() }()
-
-	req.Body = http.MaxBytesReader(resp, req.Body, 1048576)
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		ctx.BadRequest(fmt.Sprintf("unable to read request body : %s", err))
@@ -68,6 +72,12 @@ func CreateToken(ctx *context.Context, resp http.ResponseWriter, req *http.Reque
 
 // RevokeToken remove a token
 func RevokeToken(ctx *context.Context, resp http.ResponseWriter, req *http.Request) {
+
+	// Check feature flag
+	if ctx.GetConfig().FeatureApiTokens == common.FeatureDisabled {
+		ctx.BadRequest("API tokens are disabled")
+		return
+	}
 
 	// Get user from context
 	user := ctx.GetUser()

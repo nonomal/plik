@@ -55,7 +55,7 @@ func shutdownTestMetadataBackend(b *Backend) {
 }
 
 func TestNewConfig(t *testing.T) {
-	params := make(map[string]interface{})
+	params := make(map[string]any)
 	params["Driver"] = "driver"
 	params["ConnectionString"] = "connection string"
 	params["EraseFirst"] = true
@@ -160,7 +160,7 @@ func TestGormConcurrent(t *testing.T) {
 	count := 30
 	var wg sync.WaitGroup
 	errors := make(chan error, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -189,7 +189,7 @@ func TestMetadataConcurrent(t *testing.T) {
 	count := 30
 	var wg sync.WaitGroup
 	errors := make(chan error, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -209,38 +209,44 @@ func TestMetadataConcurrent(t *testing.T) {
 	require.NoError(t, err, "unable to fetch upload")
 }
 
-//func TestMetadataUpdateFileStatus(t *testing.T) {
-//	b := newTestMetadataBackend()
-//	defer shutdownTestMetadataBackend(b)
-//
-//	uploadID := "azertiop"
-//	upload := &common.Upload{ID: uploadID}
-//
-//	err := b.db.Create(upload).Error
-//	require.NoError(t, err, "unable to create upload")
-//
-//	file := &common.File{ID: "1234567890", UploadID: uploadID, Status: common.FileMissing}
-//	upload.Files = append(upload.Files, file)
-//
-//	err = b.db.Save(&upload).Error
-//	require.NoError(t, err, "unable to update upload")
-//
-//	file.Status = common.FileUploaded
-//	result := b.db.Model(&common.File{}).Where(&common.File{Status: common.FileUploading}).Updates(&file)
-//	require.Error(t, result.Error, "able to update missing file")
-//	require.Equal(t, int64(0), result.RowsAffected, "unexpected update")
-//
-//	//!\\ ON MYSQL SAVE MODIFIES THE FILE STATUS BACK TO MISSING ( wtf ? ) //!\\
-//	file.Status = common.FileUploaded
-//
-//	result = b.db.Where(&common.File{Status: common.FileMissing}).Save(&file)
-//	require.NoError(t, result.Error, "unable to update missing file")
-//	require.Equal(t, int64(1), result.RowsAffected, "unexpected update")
-//
-//	upload = &common.Upload{}
-//	err = b.db.Preload("Files").Take(upload, "id = ?", uploadID).Error
-//	require.NoError(t, err, "unable to fetch upload")
-//}
+func TestMetadataUpdateFileStatus(t *testing.T) {
+	b := newTestMetadataBackend()
+	defer shutdownTestMetadataBackend(b)
+
+	// Skip on MySQL: GORM's Save() unexpectedly resets file status back to Missing on MySQL.
+	// See the assertion below marked with "ON MYSQL" for details.
+	if b.Config.Driver == "mysql" {
+		t.Skip("Skipping on MySQL: Save() resets file status (known GORM/MySQL behavior)")
+	}
+
+	uploadID := "azertiop"
+	upload := &common.Upload{ID: uploadID}
+
+	err := b.db.Create(upload).Error
+	require.NoError(t, err, "unable to create upload")
+
+	file := &common.File{ID: "1234567890", UploadID: uploadID, Status: common.FileMissing}
+	upload.Files = append(upload.Files, file)
+
+	err = b.db.Save(&upload).Error
+	require.NoError(t, err, "unable to update upload")
+
+	file.Status = common.FileUploaded
+	result := b.db.Model(&common.File{}).Where(&common.File{Status: common.FileUploading}).Updates(&file)
+	require.NoError(t, result.Error, "unexpected error updating file")
+	require.Equal(t, int64(0), result.RowsAffected, "should not update file with wrong status")
+
+	// ON MYSQL: Save() modifies the file status back to Missing
+	file.Status = common.FileUploaded
+
+	result = b.db.Where(&common.File{Status: common.FileMissing}).Save(&file)
+	require.NoError(t, result.Error, "unable to update missing file")
+	require.Equal(t, int64(1), result.RowsAffected, "unexpected update")
+
+	upload = &common.Upload{}
+	err = b.db.Preload("Files").Take(upload, "id = ?", uploadID).Error
+	require.NoError(t, err, "unable to fetch upload")
+}
 
 func TestMetadataNotFound(t *testing.T) {
 	b := newTestMetadataBackend()

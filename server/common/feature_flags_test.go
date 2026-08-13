@@ -305,6 +305,49 @@ func Test_initializeFeatureClients(t *testing.T) {
 	RequireError(t, config.initializeFeatureClients(), "Invalid feature flag value")
 }
 
+func Test_initializeFeatureApiTokens(t *testing.T) {
+	// Invalid value
+	config := NewConfiguration()
+	config.FeatureApiTokens = "invalid"
+	RequireError(t, config.initializeFeatureApiTokens(), "Invalid feature flag value")
+
+	// Default → enabled
+	config = NewConfiguration()
+	config.FeatureApiTokens = ""
+	require.NoError(t, config.initializeFeatureApiTokens())
+	require.Equal(t, FeatureEnabled, config.FeatureApiTokens)
+
+	// Disabled
+	config = NewConfiguration()
+	config.FeatureApiTokens = FeatureDisabled
+	require.NoError(t, config.initializeFeatureApiTokens())
+	require.Equal(t, FeatureDisabled, config.FeatureApiTokens)
+
+	// forced / default are not valid
+	config = NewConfiguration()
+	config.FeatureApiTokens = FeatureForced
+	RequireError(t, config.initializeFeatureApiTokens(), "Invalid feature flag value")
+
+	config = NewConfiguration()
+	config.FeatureApiTokens = FeatureDefault
+	RequireError(t, config.initializeFeatureApiTokens(), "Invalid feature flag value")
+
+	// Cross-flag: forced auth + disabled tokens → FeatureClients auto-disabled
+	config = NewConfiguration()
+	config.FeatureAuthentication = FeatureForced
+	config.FeatureApiTokens = FeatureDisabled
+	require.NoError(t, config.initializeFeatureApiTokens())
+	require.Equal(t, FeatureDisabled, config.FeatureClients)
+
+	// Cross-flag: non-forced auth + disabled tokens → FeatureClients unchanged
+	config = NewConfiguration()
+	config.FeatureAuthentication = FeatureEnabled
+	config.FeatureApiTokens = FeatureDisabled
+	config.FeatureClients = FeatureEnabled
+	require.NoError(t, config.initializeFeatureApiTokens())
+	require.Equal(t, FeatureEnabled, config.FeatureClients)
+}
+
 func Test_initializeFeatureGithub(t *testing.T) {
 	config := NewConfiguration()
 	config.FeatureGithub = "invalid"
@@ -327,6 +370,54 @@ func Test_initializeFeatureGithub(t *testing.T) {
 	config = NewConfiguration()
 	config.FeatureClients = FeatureDefault
 	RequireError(t, config.initializeFeatureClients(), "Invalid feature flag value")
+}
+
+func Test_initializeFeatureLocalLogin(t *testing.T) {
+	config := NewConfiguration()
+	config.FeatureLocalLogin = "invalid"
+	RequireError(t, config.initializeFeatureLocalLogin(), "Invalid feature flag value")
+
+	config = NewConfiguration()
+	config.FeatureLocalLogin = ""
+	require.NoError(t, config.initializeFeatureLocalLogin())
+	require.Equal(t, FeatureEnabled, config.FeatureLocalLogin)
+
+	config = NewConfiguration()
+	config.FeatureLocalLogin = FeatureDisabled
+	require.NoError(t, config.initializeFeatureLocalLogin())
+	require.Equal(t, FeatureDisabled, config.FeatureLocalLogin)
+
+	config = NewConfiguration()
+	config.FeatureLocalLogin = FeatureForced
+	RequireError(t, config.initializeFeatureLocalLogin(), "Invalid feature flag value")
+
+	config = NewConfiguration()
+	config.FeatureLocalLogin = FeatureDefault
+	RequireError(t, config.initializeFeatureLocalLogin(), "Invalid feature flag value")
+}
+
+func Test_initializeFeatureDeleteAccount(t *testing.T) {
+	config := NewConfiguration()
+	config.FeatureDeleteAccount = "invalid"
+	RequireError(t, config.initializeFeatureDeleteAccount(), "Invalid feature flag value")
+
+	config = NewConfiguration()
+	config.FeatureDeleteAccount = ""
+	require.NoError(t, config.initializeFeatureDeleteAccount())
+	require.Equal(t, FeatureEnabled, config.FeatureDeleteAccount)
+
+	config = NewConfiguration()
+	config.FeatureDeleteAccount = FeatureDisabled
+	require.NoError(t, config.initializeFeatureDeleteAccount())
+	require.Equal(t, FeatureDisabled, config.FeatureDeleteAccount)
+
+	config = NewConfiguration()
+	config.FeatureDeleteAccount = FeatureForced
+	RequireError(t, config.initializeFeatureDeleteAccount(), "Invalid feature flag value")
+
+	config = NewConfiguration()
+	config.FeatureDeleteAccount = FeatureDefault
+	RequireError(t, config.initializeFeatureDeleteAccount(), "Invalid feature flag value")
 }
 
 func Test_initializeFeatureText(t *testing.T) {
@@ -360,6 +451,8 @@ func Test_initializeFeatureFlags(t *testing.T) {
 	require.NoError(t, config.initializeFeatureFlags())
 
 	require.NoError(t, ValidateFeatureFlag(config.FeatureAuthentication))
+	require.NoError(t, ValidateCustomFeatureFlag(config.FeatureLocalLogin, []string{FeatureDisabled, FeatureEnabled}))
+	require.NoError(t, ValidateCustomFeatureFlag(config.FeatureDeleteAccount, []string{FeatureDisabled, FeatureEnabled}))
 	require.NoError(t, ValidateFeatureFlag(config.FeatureOneShot))
 	require.NoError(t, ValidateFeatureFlag(config.FeatureRemovable))
 	require.NoError(t, ValidateFeatureFlag(config.FeatureStream))
@@ -368,6 +461,7 @@ func Test_initializeFeatureFlags(t *testing.T) {
 	require.NoError(t, ValidateFeatureFlag(config.FeatureExtendTTL))
 	require.NoError(t, ValidateFeatureFlag(config.FeatureGithub))
 	require.NoError(t, ValidateFeatureFlag(config.FeatureClients))
+	require.NoError(t, ValidateCustomFeatureFlag(config.FeatureApiTokens, []string{FeatureDisabled, FeatureEnabled}))
 	require.NoError(t, ValidateFeatureFlag(config.FeatureText))
 
 	config = NewConfiguration()

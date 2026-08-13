@@ -24,9 +24,13 @@ func LocalLogin(ctx *context.Context, resp http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	if !config.LocalAuthentication {
+		ctx.BadRequest("local authentication is disabled")
+		return
+	}
+
 	// Read request body
 	defer func() { _ = req.Body.Close() }()
-	req.Body = http.MaxBytesReader(resp, req.Body, 1048576)
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		ctx.BadRequest("unable to read request body : %s", err)
@@ -71,6 +75,7 @@ func LocalLogin(ctx *context.Context, resp http.ResponseWriter, req *http.Reques
 	sessionCookie, xsrfCookie, err := ctx.GetAuthenticator().GenAuthCookies(user)
 	if err != nil {
 		ctx.InternalServerError("unable to generate session cookies", err)
+		return
 	}
 	http.SetCookie(resp, sessionCookie)
 	http.SetCookie(resp, xsrfCookie)

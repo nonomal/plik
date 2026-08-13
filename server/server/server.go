@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -41,6 +42,7 @@ type PlikServer struct {
 	authenticator *common.SessionAuthenticator
 
 	httpServer        *http.Server
+	httpListener      net.Listener
 	metricsHTTPServer *http.Server
 
 	metrics     *common.PlikMetrics
@@ -164,16 +166,25 @@ func (ps *PlikServer) start() (err error) {
 	log.Infof("Starting plikd server v%s", common.GetBuildInfo().Version)
 
 	log.Debug("Configuration :")
-	for _, line := range strings.Split(ps.config.String(), "\n") {
+	for line := range strings.SplitSeq(ps.config.String(), "\n") {
 		if line != "" {
 			log.Debug(line)
 		}
+	}
+
+	if ps.config.DownloadDomain != "" && ps.config.PlikDomain == "" {
+		log.Warning("DownloadDomain is set without PlikDomain: download domain UI/API restriction is disabled (no domain to redirect to). Set PlikDomain to enable full domain separation.")
 	}
 
 	// Initialize backends
 	err = ps.initializeMetadataBackend()
 	if err != nil {
 		return fmt.Errorf("unable to initialize metadata backend : %s", err)
+	}
+
+	err = ps.ensureDefaultAdmin()
+	if err != nil {
+		return fmt.Errorf("unable to ensure default admin user : %s", err)
 	}
 
 	err = ps.initializeDataBackend()
@@ -191,6 +202,13 @@ func (ps *PlikServer) start() (err error) {
 		return fmt.Errorf("unable to initialize session authenticator : %s", err)
 	}
 
+	if ps.config.OIDCAuthentication {
+		err = handlers.InitOIDCDiscovery(ps.config.OIDCProviderURL, log)
+		if err != nil {
+			return fmt.Errorf("unable to initialize OIDC provider : %s", err)
+		}
+	}
+
 	if ps.config.IsAutoClean() {
 		go ps.uploadsCleaningRoutine()
 	}
@@ -201,6 +219,9 @@ func (ps *PlikServer) start() (err error) {
 
 	var proto string
 	address := ps.config.ListenAddress + ":" + strconv.Itoa(ps.config.ListenPort)
+
+	// Bind the listener first so we know the actual port (supports port 0 for ephemeral allocation)
+	var listener net.Listener
 	if ps.config.SslEnabled {
 		proto = "https"
 		tlsConfig := &tls.Config{MinVersion: ps.config.GetTlsVersion()}
@@ -209,21 +230,48 @@ func (ps *PlikServer) start() (err error) {
 			return fmt.Errorf("unable to start plik server without ssl certificates")
 		}
 
-		ps.httpServer = &http.Server{Addr: address, Handler: handler, TLSConfig: tlsConfig}
+		cert, err := tls.LoadX509KeyPair(ps.config.SslCert, ps.config.SslKey)
+		if err != nil {
+			return fmt.Errorf("unable to load ssl certificate : %s", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+
+		listener, err = tls.Listen("tcp", address, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("unable to listen on %s : %s", address, err)
+		}
+
+		ps.httpServer = &http.Server{
+			Handler:           handler,
+			TLSConfig:         tlsConfig,
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
 	} else {
 		proto = "http"
-		ps.httpServer = &http.Server{Addr: address, Handler: handler}
+		var err error
+		listener, err = net.Listen("tcp", address)
+		if err != nil {
+			return fmt.Errorf("unable to listen on %s : %s", address, err)
+		}
+
+		ps.httpServer = &http.Server{
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
 	}
 
-	log.Infof("Starting server at %s://%s", proto, address)
+	ps.httpListener = listener
+
+	// Update the config with the actual port (important when ListenPort is 0)
+	ps.config.ListenPort = listener.Addr().(*net.TCPAddr).Port
+
+	log.Infof("Starting server at %s://%s", proto, listener.Addr().String())
 
 	// Start HTTP Server
 	go func() {
-		if ps.config.SslEnabled {
-			err = ps.httpServer.ListenAndServeTLS(ps.config.SslCert, ps.config.SslKey)
-		} else {
-			err = ps.httpServer.ListenAndServe()
-		}
+		err := ps.httpServer.Serve(listener)
 		if err != nil {
 			ps.mu.Lock()
 			defer ps.mu.Unlock()
@@ -235,6 +283,53 @@ func (ps *PlikServer) start() (err error) {
 
 	ps.startMetricsHTTPServer()
 
+	return nil
+}
+
+// ensureDefaultAdmin creates a local admin user on first startup if DefaultAdminLogin is configured.
+// It is idempotent: if the user already exists it does nothing.
+func (ps *PlikServer) ensureDefaultAdmin() error {
+	if ps.config.DefaultAdminLogin == "" {
+		return nil
+	}
+
+	log := ps.config.NewLogger()
+
+	userID := common.GetUserID(common.ProviderLocal, ps.config.DefaultAdminLogin)
+	user, err := ps.metadataBackend.GetUser(userID)
+	if err != nil {
+		return fmt.Errorf("unable to check for default admin user : %s", err)
+	}
+
+	if user != nil {
+		log.Infof("Default admin user '%s' already exists, skipping creation", ps.config.DefaultAdminLogin)
+		return nil
+	}
+
+	password := ps.config.DefaultAdminPassword
+	if password == "" {
+		password = common.GenerateRandomID(32)
+		log.Warningf("Generated password for default admin '%s' : %s", ps.config.DefaultAdminLogin, password)
+	}
+
+	params := &common.User{
+		Provider: common.ProviderLocal,
+		Login:    ps.config.DefaultAdminLogin,
+		Password: password,
+		IsAdmin:  true,
+	}
+
+	user, err = common.CreateUserFromParams(params)
+	if err != nil {
+		return fmt.Errorf("unable to create default admin user : %s", err)
+	}
+
+	err = ps.metadataBackend.CreateUser(user)
+	if err != nil {
+		return fmt.Errorf("unable to save default admin user : %s", err)
+	}
+
+	log.Infof("Created default admin user '%s'", ps.config.DefaultAdminLogin)
 	return nil
 }
 
@@ -302,7 +397,7 @@ func (ps *PlikServer) getHTTPHandler() (handler http.Handler) {
 	emptyChain := context.NewChain(middleware.Context(ps.setupContext))
 
 	// The base middleware chain
-	stdChain := emptyChain.Append(middleware.SourceIP, middleware.Log, middleware.Recover)
+	stdChain := emptyChain.Append(middleware.SourceIP, middleware.Log, middleware.Recover, middleware.LimitBody)
 
 	// A chain that authenticates user from session cookies
 	authChain := stdChain.Append(middleware.Authenticate(false), middleware.Impersonate)
@@ -321,15 +416,16 @@ func (ps *PlikServer) getHTTPHandler() (handler http.Handler) {
 	tokenChainWithRedirect := context.NewChain(middleware.RedirectOnFailure).AppendChain(tokenChain)
 
 	// Chain that fetches the requested upload and file metadata
-	getFileChain := context.NewChain(middleware.Upload, middleware.File)
+	getFileChain := context.NewChain(middleware.CORSPreflight, middleware.Upload, middleware.BlockBotDownload, middleware.File)
 	userChain := authenticatedChain.Append(middleware.User)
 
 	// HTTP Api routes configuration
 	router := mux.NewRouter()
+	router.Use(middleware.RestrictDownloadDomain(ps.config))
 	router.Handle("/", tokenChain.Append(middleware.CreateUpload).Then(handlers.AddFile)).Methods("POST")
 
 	router.Handle("/config", stdChain.Then(handlers.GetConfiguration)).Methods("GET")
-	router.Handle("/version", stdChain.Then(handlers.GetVersion)).Methods("GET")
+	router.Handle("/version", authChain.Then(handlers.GetVersion)).Methods("GET")
 	router.Handle("/qrcode", stdChain.Then(handlers.GetQrCode)).Methods("GET")
 	router.Handle("/health", emptyChain.Then(handlers.Health)).Methods("GET")
 
@@ -339,19 +435,28 @@ func (ps *PlikServer) getHTTPHandler() (handler http.Handler) {
 	router.Handle("/file/{uploadID}", tokenChain.Append(middleware.Upload).Then(handlers.AddFile)).Methods("POST")
 	router.Handle("/file/{uploadID}/{fileID}/{filename}", tokenChain.AppendChain(getFileChain).Then(handlers.AddFile)).Methods("POST")
 	router.Handle("/file/{uploadID}/{fileID}/{filename}", tokenChain.AppendChain(getFileChain).Then(handlers.RemoveFile)).Methods("DELETE")
-	router.Handle("/file/{uploadID}/{fileID}/{filename}", tokenChainWithRedirect.AppendChain(getFileChain).Then(handlers.GetFile)).Methods("HEAD", "GET")
+	router.Handle("/file/{uploadID}/{fileID}/{filename}", tokenChainWithRedirect.AppendChain(getFileChain).Then(handlers.GetFile)).Methods("HEAD", "GET", "OPTIONS")
 	router.Handle("/stream/{uploadID}/{fileID}/{filename}", tokenChain.AppendChain(getFileChain).Then(handlers.AddFile)).Methods("POST")
-	router.Handle("/stream/{uploadID}/{fileID}/{filename}", tokenChainWithRedirect.AppendChain(getFileChain).Then(handlers.GetFile)).Methods("HEAD", "GET")
-	router.Handle("/archive/{uploadID}/{filename}", tokenChainWithRedirect.Append(middleware.Upload).Then(handlers.GetArchive)).Methods("HEAD", "GET")
+	router.Handle("/stream/{uploadID}/{fileID}/{filename}", tokenChain.AppendChain(getFileChain).Then(handlers.RemoveFile)).Methods("DELETE")
+	router.Handle("/stream/{uploadID}/{fileID}/{filename}", tokenChainWithRedirect.AppendChain(getFileChain).Then(handlers.GetFile)).Methods("HEAD", "GET", "OPTIONS")
+	router.Handle("/archive/{uploadID}/{filename}", tokenChainWithRedirect.Append(middleware.CORSPreflight, middleware.Upload, middleware.BlockBotDownload).Then(handlers.GetArchive)).Methods("HEAD", "GET", "OPTIONS")
 
 	router.Handle("/auth/google/login", authChain.Then(handlers.GoogleLogin)).Methods("GET")
 	router.Handle("/auth/google/callback", stdChainWithRedirect.Then(handlers.GoogleCallback)).Methods("GET")
 	router.Handle("/auth/ovh/login", authChain.Then(handlers.OvhLogin)).Methods("GET")
 	router.Handle("/auth/ovh/callback", stdChainWithRedirect.Then(handlers.OvhCallback)).Methods("GET")
+	router.Handle("/auth/oidc/login", authChain.Then(handlers.OIDCLogin)).Methods("GET")
+	router.Handle("/auth/oidc/callback", stdChainWithRedirect.Then(handlers.OIDCCallback)).Methods("GET")
+	router.Handle("/auth/github/login", authChain.Then(handlers.GitHubLogin)).Methods("GET")
+	router.Handle("/auth/github/callback", stdChainWithRedirect.Then(handlers.GitHubCallback)).Methods("GET")
 	router.Handle("/auth/local/login", authChain.Then(handlers.LocalLogin)).Methods("POST")
+	router.Handle("/auth/cli/init", stdChain.Then(handlers.CLIAuthInit)).Methods("POST")
+	router.Handle("/auth/cli/approve", authenticatedChain.Then(handlers.CLIAuthApprove)).Methods("POST")
+	router.Handle("/auth/cli/poll", stdChain.Then(handlers.CLIAuthPoll)).Methods("POST")
 	router.Handle("/auth/logout", stdChain.Then(handlers.Logout)).Methods("GET")
 
 	router.Handle("/me", authenticatedChain.Then(handlers.UserInfo)).Methods("GET")
+	router.Handle("/me", authenticatedChain.Then(handlers.PatchMe)).Methods("PATCH")
 	router.Handle("/me", authenticatedChain.Then(handlers.DeleteAccount)).Methods("DELETE")
 	router.Handle("/me/token", authenticatedChain.Append(middleware.Paginate).Then(handlers.GetUserTokens)).Methods("GET")
 	router.Handle("/me/token", authenticatedChain.Then(handlers.CreateToken)).Methods("POST")
@@ -366,6 +471,7 @@ func (ps *PlikServer) getHTTPHandler() (handler http.Handler) {
 
 	router.Handle("/user", adminChain.Then(handlers.CreateUser)).Methods("POST")
 	router.Handle("/stats", adminChain.Then(handlers.GetServerStatistics)).Methods("GET")
+	router.Handle("/users/search", adminChain.Then(handlers.SearchUsers)).Methods("GET")
 	router.Handle("/users", adminChain.Append(middleware.Paginate).Then(handlers.GetUsers)).Methods("GET")
 	router.Handle("/uploads", adminChain.Append(middleware.Paginate).Then(handlers.GetUploads)).Methods("GET")
 
@@ -376,12 +482,17 @@ func (ps *PlikServer) getHTTPHandler() (handler http.Handler) {
 			ps.config.NewLogger().Warningf("Webapp directory %s not found, consider setting config.NoWebInterface to true", ps.config.WebappDirectory)
 		}
 
-		router.PathPrefix("/clients/").Handler(http.StripPrefix("/clients/", http.FileServer(http.Dir(ps.config.ClientsDirectory))))
-		router.PathPrefix("/changelog/").Handler(http.StripPrefix("/changelog/", http.FileServer(http.Dir(ps.config.ChangelogDirectory))))
-		router.PathPrefix("/").Handler(http.FileServer(http.Dir(ps.config.WebappDirectory)))
+		router.PathPrefix("/clients/").Handler(http.StripPrefix("/clients/", common.NoDirListing(http.FileServer(http.Dir(ps.config.ClientsDirectory)))))
+		router.PathPrefix("/changelog/").Handler(http.StripPrefix("/changelog/", common.NoDirListing(http.FileServer(http.Dir(ps.config.ChangelogDirectory)))))
+		router.PathPrefix("/").Handler(common.NoDirListing(http.FileServer(http.Dir(ps.config.WebappDirectory))))
 	}
 
 	handler = common.StripPrefix(ps.config.Path, router)
+
+	if ps.config.AssumeHTTPS {
+		handler = middleware.HSTS(handler)
+	}
+
 	return handler
 }
 
@@ -394,7 +505,7 @@ func (ps *PlikServer) WithMetadataBackend(backend *metadata.Backend) *PlikServer
 }
 
 // NewMetadataBackend Initialize metadata backend from metadata backend configuration
-func NewMetadataBackend(params map[string]interface{}, log *logger.Logger) (backend *metadata.Backend, err error) {
+func NewMetadataBackend(params map[string]any, log *logger.Logger) (backend *metadata.Backend, err error) {
 	return metadata.NewBackend(metadata.NewConfig(params), log)
 }
 
@@ -421,7 +532,7 @@ func (ps *PlikServer) WithDataBackend(backend data.Backend) *PlikServer {
 }
 
 // NewDataBackend Initialize data backend from type and data backend configuration
-func NewDataBackend(impl string, params map[string]interface{}) (backend data.Backend, err error) {
+func NewDataBackend(impl string, params map[string]any) (backend data.Backend, err error) {
 	switch impl {
 	case "file":
 		backend = file.NewBackend(file.NewConfig(params))
@@ -469,7 +580,7 @@ func (ps *PlikServer) WithStreamBackend(backend data.Backend) *PlikServer {
 // Initialize data backend from type found in configuration
 func (ps *PlikServer) initializeStreamBackend() (err error) {
 	if ps.streamBackend == nil && ps.config.FeatureStream != common.FeatureDisabled {
-		ps.streamBackend = stream.NewBackend()
+		ps.streamBackend = stream.NewBackend(time.Duration(ps.config.GetStreamTimeout()) * time.Second)
 	}
 
 	return nil
@@ -490,7 +601,7 @@ func (ps *PlikServer) initializeAuthenticator() (err error) {
 			return fmt.Errorf("metadata backend must be initialized before the authenticator")
 		}
 
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			setting, err := ps.metadataBackend.GetSetting(common.AuthenticationSignatureKeySettingKey)
 			if err != nil {
 				return fmt.Errorf("unable to get authentication signature key : %s", err)
@@ -510,7 +621,7 @@ func (ps *PlikServer) initializeAuthenticator() (err error) {
 
 			ps.authenticator = &common.SessionAuthenticator{
 				SignatureKey:   setting.Value,
-				SecureCookies:  ps.config.EnhancedWebSecurity,
+				SecureCookies:  ps.config.AssumeHTTPS,
 				SessionTimeout: ps.config.GetSessionTimeout(),
 				Path:           ps.config.GetPath(),
 			}

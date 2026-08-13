@@ -1,0 +1,75 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.description" . }}
+
+{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}
+
+## Installation
+
+### From Helm repository (recommended)
+
+```bash
+helm repo add plik https://root-gg.github.io/plik
+helm repo update
+helm install plik plik/plik
+```
+
+### From source
+
+```bash
+git clone https://github.com/root-gg/plik.git
+cd plik
+make helm-install
+```
+
+## Quick Start
+
+Minimal install with default settings (in-memory storage, no authentication):
+
+```bash
+helm repo add plik https://root-gg.github.io/plik
+helm install plik plik/plik
+```
+
+With persistence and ingress:
+
+```yaml
+# custom-values.yaml
+kind: StatefulSet
+
+persistence:
+  enabled: true
+  size: 50Gi
+
+dbPersistence:
+  enabled: true
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: plik.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: plik-tls
+      hosts:
+        - plik.example.com
+
+plikd:
+  FeatureAuthentication: "forced"
+  MaxFileSizeStr: "5GB"
+  DefaultTTLStr: "7d"
+  MaxTTLStr: "30d"
+```
+
+```bash
+helm install plik plik/plik -f custom-values.yaml
+```
+
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions around config vs. secrets separation, persistence, and workload kind.
+
+{{ template "chart.valuesSection" . }}

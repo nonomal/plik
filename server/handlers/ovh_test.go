@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/root-gg/plik/server/common"
@@ -24,6 +24,8 @@ func TestOVHLogin(t *testing.T) {
 
 	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
 	ctx.GetConfig().OvhAuthentication = true
+	ctx.GetConfig().OvhAPIKey = "ovh_api_key"
+	ctx.GetConfig().OvhAPISecret = "ovh_api_secret"
 	ctx.GetConfig().OvhAPIEndpoint = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
 
 	req, err := http.NewRequest("GET", "/auth/ovh/login", bytes.NewBuffer([]byte{}))
@@ -47,7 +49,7 @@ func TestOVHLogin(t *testing.T) {
 		resp.WriteHeader(http.StatusInternalServerError)
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 
@@ -74,7 +76,7 @@ func TestOVHLogin(t *testing.T) {
 	}
 	require.NotEqual(t, "", stateString, "context.TestPanic(t, rr,")
 
-	ovhAuthCookie, err := jwt.Parse(stateString, func(t *jwt.Token) (interface{}, error) {
+	ovhAuthCookie, err := jwt.Parse(stateString, func(t *jwt.Token) (any, error) {
 		// Verify signing algorithm
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("Unexpected siging method : %v", t.Header["alg"])
@@ -100,6 +102,8 @@ func TestOVHLoginInvalidOVHResponse(t *testing.T) {
 
 	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
 	ctx.GetConfig().OvhAuthentication = true
+	ctx.GetConfig().OvhAPIKey = "ovh_api_key"
+	ctx.GetConfig().OvhAPISecret = "ovh_api_secret"
 	ctx.GetConfig().OvhAPIEndpoint = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
 
 	req, err := http.NewRequest("GET", "/auth/ovh/login", bytes.NewBuffer([]byte{}))
@@ -112,7 +116,7 @@ func TestOVHLoginInvalidOVHResponse(t *testing.T) {
 		resp.WriteHeader(http.StatusInternalServerError)
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 
@@ -126,6 +130,8 @@ func TestOVHLoginInvalidOVHResponse2(t *testing.T) {
 
 	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
 	ctx.GetConfig().OvhAuthentication = true
+	ctx.GetConfig().OvhAPIKey = "ovh_api_key"
+	ctx.GetConfig().OvhAPISecret = "ovh_api_secret"
 	ctx.GetConfig().OvhAPIEndpoint = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
 
 	req, err := http.NewRequest("GET", "/auth/ovh/login", bytes.NewBuffer([]byte{}))
@@ -138,7 +144,7 @@ func TestOVHLoginInvalidOVHResponse2(t *testing.T) {
 		resp.Write([]byte("invalid json"))
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 
@@ -181,11 +187,31 @@ func TestOVHLoginOVHAuthDisabled(t *testing.T) {
 	context.TestBadRequest(t, rr, "OVH authentication is disabled")
 }
 
+func TestOVHLoginMissingCredentials(t *testing.T) {
+	ctx := newTestingContext(common.NewConfiguration())
+
+	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
+	ctx.GetConfig().OvhAuthentication = true
+
+	req, err := http.NewRequest("GET", "/auth/ovh/login", bytes.NewBuffer([]byte{}))
+	require.NoError(t, err, "unable to create new request")
+
+	req.Header.Set("referer", "http://plik.root.gg")
+
+	rr := ctx.NewRecorder(req)
+	OvhLogin(ctx, rr, req)
+
+	context.TestInternalServerError(t, rr, "missing OVH API credentials")
+}
+
 func TestOVHLoginMissingReferer(t *testing.T) {
 	ctx := newTestingContext(common.NewConfiguration())
 
 	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
 	ctx.GetConfig().OvhAuthentication = true
+	ctx.GetConfig().OvhAPIKey = "ovh_api_key"
+	ctx.GetConfig().OvhAPISecret = "ovh_api_secret"
+	ctx.GetConfig().OvhAPIEndpoint = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
 
 	req, err := http.NewRequest("GET", "/auth/ovh/login", bytes.NewBuffer([]byte{}))
 	require.NoError(t, err, "unable to create new request")
@@ -211,6 +237,7 @@ func TestOVHCallback(t *testing.T) {
 	session := jwt.New(jwt.SigningMethodHS256)
 	session.Claims.(jwt.MapClaims)["ovh-consumer-key"] = "consumerKey"
 	session.Claims.(jwt.MapClaims)["ovh-api-endpoint"] = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
+	session.Claims.(jwt.MapClaims)["expire"] = time.Now().Add(5 * time.Minute).Unix()
 
 	sessionString, err := session.SignedString([]byte(ctx.GetConfig().OvhAPISecret))
 	require.NoError(t, err, "unable to generate session string")
@@ -234,8 +261,8 @@ func TestOVHCallback(t *testing.T) {
 	user := common.NewUser("ovh", "plik")
 	user.ID = "ovh:plik"
 	user.Login = ovhUserResponse.Nichandle
-	user.Name = ovhUserResponse.FirstName + " " + ovhUserResponse.LastName
-	user.Email = ovhUserResponse.Email
+	user.Name = "Old Name"     // stale value to test update-on-login
+	user.Email = "old@root.gg" // stale value to test update-on-login
 	err = ctx.GetMetadataBackend().CreateUser(user)
 	require.NoError(t, err, "unable to create test user")
 
@@ -254,7 +281,7 @@ func TestOVHCallback(t *testing.T) {
 		resp.WriteHeader(http.StatusInternalServerError)
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 
@@ -262,7 +289,7 @@ func TestOVHCallback(t *testing.T) {
 	OvhCallback(ctx, rr, req)
 
 	// Check the status code is what we expect.
-	require.Equal(t, 301, rr.Code, "handler returned wrong status code")
+	require.Equal(t, 302, rr.Code, "handler returned wrong status code")
 
 	respBody, err := io.ReadAll(rr.Body)
 	require.NoError(t, err, "unable to read response body")
@@ -283,6 +310,13 @@ func TestOVHCallback(t *testing.T) {
 
 	require.NotEqual(t, "", sessionCookie, "missing plik session cookie")
 	require.NotEqual(t, "", xsrfCookie, "missing plik xsrf cookie")
+
+	// Verify that user fields were updated on re-login
+	updated, err := ctx.GetMetadataBackend().GetUser("ovh:plik")
+	require.NoError(t, err)
+	require.NotNil(t, updated, "missing user")
+	require.Equal(t, ovhUserResponse.FirstName+" "+ovhUserResponse.LastName, updated.Name, "user name not updated on re-login")
+	require.Equal(t, ovhUserResponse.Email, updated.Email, "user email not updated on re-login")
 }
 
 func TestOVHCallbackCreateUser(t *testing.T) {
@@ -301,6 +335,7 @@ func TestOVHCallbackCreateUser(t *testing.T) {
 	session := jwt.New(jwt.SigningMethodHS256)
 	session.Claims.(jwt.MapClaims)["ovh-consumer-key"] = "consumerKey"
 	session.Claims.(jwt.MapClaims)["ovh-api-endpoint"] = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
+	session.Claims.(jwt.MapClaims)["expire"] = time.Now().Add(5 * time.Minute).Unix()
 
 	sessionString, err := session.SignedString([]byte(ctx.GetConfig().OvhAPISecret))
 	require.NoError(t, err, "unable to generate session string")
@@ -336,7 +371,7 @@ func TestOVHCallbackCreateUser(t *testing.T) {
 		resp.WriteHeader(http.StatusInternalServerError)
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 
@@ -344,7 +379,7 @@ func TestOVHCallbackCreateUser(t *testing.T) {
 	OvhCallback(ctx, rr, req)
 
 	// Check the status code is what we expect.
-	require.Equal(t, 301, rr.Code, "handler returned wrong status code")
+	require.Equal(t, 302, rr.Code, "handler returned wrong status code")
 
 	respBody, err := io.ReadAll(rr.Body)
 	require.NoError(t, err, "unable to read response body")
@@ -388,6 +423,7 @@ func TestOVHCallbackCreateUserNotWhitelisted(t *testing.T) {
 	session := jwt.New(jwt.SigningMethodHS256)
 	session.Claims.(jwt.MapClaims)["ovh-consumer-key"] = "consumerKey"
 	session.Claims.(jwt.MapClaims)["ovh-api-endpoint"] = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
+	session.Claims.(jwt.MapClaims)["expire"] = time.Now().Add(5 * time.Minute).Unix()
 	sessionString, err := session.SignedString([]byte(ctx.GetConfig().OvhAPISecret))
 	require.NoError(t, err, "unable to generate session string")
 
@@ -422,7 +458,7 @@ func TestOVHCallbackCreateUserNotWhitelisted(t *testing.T) {
 		resp.WriteHeader(http.StatusInternalServerError)
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 
@@ -450,6 +486,7 @@ func TestOVHCallbackMissingOvhAPIConfigParam(t *testing.T) {
 	ctx := newTestingContext(common.NewConfiguration())
 
 	ctx.GetConfig().FeatureAuthentication = common.FeatureEnabled
+	ctx.GetConfig().OvhAuthentication = true
 
 	req, err := http.NewRequest("GET", "/auth/ovh/callback", bytes.NewBuffer([]byte{}))
 	require.NoError(t, err, "unable to create new request")
@@ -491,6 +528,7 @@ func TestOVHCallbackMissingSessionString(t *testing.T) {
 
 	session := jwt.New(jwt.SigningMethodHS256)
 	session.Claims.(jwt.MapClaims)["ovh-api-endpoint"] = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
+	session.Claims.(jwt.MapClaims)["expire"] = time.Now().Add(5 * time.Minute).Unix()
 	sessionString, err := session.SignedString([]byte(ctx.GetConfig().OvhAPISecret))
 	require.NoError(t, err, "unable to generate session string")
 
@@ -524,6 +562,7 @@ func TestOVHCallbackMissingOvhApiEndpoint(t *testing.T) {
 
 	session := jwt.New(jwt.SigningMethodHS256)
 	session.Claims.(jwt.MapClaims)["ovh-consumer-key"] = "consumerKey"
+	session.Claims.(jwt.MapClaims)["expire"] = time.Now().Add(5 * time.Minute).Unix()
 	sessionString, err := session.SignedString([]byte(ctx.GetConfig().OvhAPISecret))
 	require.NoError(t, err, "unable to generate session string")
 
@@ -557,6 +596,7 @@ func TestOVHCallbackMissingOvhApi(t *testing.T) {
 	session := jwt.New(jwt.SigningMethodHS256)
 	session.Claims.(jwt.MapClaims)["ovh-consumer-key"] = "consumerKey"
 	session.Claims.(jwt.MapClaims)["ovh-api-endpoint"] = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
+	session.Claims.(jwt.MapClaims)["expire"] = time.Now().Add(5 * time.Minute).Unix()
 	sessionString, err := session.SignedString([]byte(ctx.GetConfig().OvhAPISecret))
 	require.NoError(t, err, "unable to generate session string")
 
@@ -616,6 +656,7 @@ func TestOVHCallbackInvalidOvhApiResponse(t *testing.T) {
 	session := jwt.New(jwt.SigningMethodHS256)
 	session.Claims.(jwt.MapClaims)["ovh-consumer-key"] = "consumerKey"
 	session.Claims.(jwt.MapClaims)["ovh-api-endpoint"] = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
+	session.Claims.(jwt.MapClaims)["expire"] = time.Now().Add(5 * time.Minute).Unix()
 
 	sessionString, err := session.SignedString([]byte(ctx.GetConfig().OvhAPISecret))
 	require.NoError(t, err, "unable to generate session string")
@@ -633,7 +674,7 @@ func TestOVHCallbackInvalidOvhApiResponse(t *testing.T) {
 		resp.WriteHeader(http.StatusInternalServerError)
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 
@@ -657,6 +698,7 @@ func TestOVHCallbackInvalidOvhApiResponseJson(t *testing.T) {
 	session := jwt.New(jwt.SigningMethodHS256)
 	session.Claims.(jwt.MapClaims)["ovh-consumer-key"] = "consumerKey"
 	session.Claims.(jwt.MapClaims)["ovh-api-endpoint"] = "http://127.0.0.1:" + strconv.Itoa(common.APIMockServerDefaultPort)
+	session.Claims.(jwt.MapClaims)["expire"] = time.Now().Add(5 * time.Minute).Unix()
 
 	sessionString, err := session.SignedString([]byte(ctx.GetConfig().OvhAPISecret))
 	require.NoError(t, err, "unable to generate session string")
@@ -675,7 +717,7 @@ func TestOVHCallbackInvalidOvhApiResponseJson(t *testing.T) {
 		resp.Write([]byte("invalid json"))
 	}
 
-	shutdown, err := common.StartAPIMockServer(http.HandlerFunc(handler))
+	_, shutdown, err := common.StartAPIMockServerCustomPort(common.APIMockServerDefaultPort, http.HandlerFunc(handler))
 	defer shutdown()
 	require.NoError(t, err, "unable to start OVH api mock server")
 

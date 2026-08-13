@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/root-gg/plik/server/common"
 	"github.com/root-gg/plik/server/data"
@@ -21,7 +22,7 @@ type Config struct {
 
 // NewConfig instantiate a new default configuration
 // and override it with configuration passed as argument
-func NewConfig(params map[string]interface{}) (config *Config) {
+func NewConfig(params map[string]any) (config *Config) {
 	config = new(Config)
 	config.Directory = "files" // Default upload directory is ./files
 	utils.Assign(config, params)
@@ -43,7 +44,7 @@ func NewBackend(config *Config) (b *Backend) {
 
 // GetFile implementation for file data backend will search
 // on filesystem the asked file and return its reading filehandle
-func (b *Backend) GetFile(file *common.File) (reader io.ReadCloser, err error) {
+func (b *Backend) GetFile(file *common.File) (reader io.ReadSeekCloser, err error) {
 	_, path, err := b.getPathCompat(file)
 	if err != nil {
 		return nil, err
@@ -68,7 +69,7 @@ func (b *Backend) AddFile(file *common.File, fileReader io.Reader) (err error) {
 	}
 
 	// Create directory
-	err = os.MkdirAll(dir, 0777)
+	err = os.MkdirAll(dir, 0755)
 	if err != nil {
 		return fmt.Errorf("unable to create upload directory")
 	}
@@ -124,11 +125,17 @@ func (b *Backend) getPath(file *common.File) (dir string, path string, err error
 		return "", "", fmt.Errorf("file not initialized")
 	}
 
+	if !validID.MatchString(file.ID) || !validID.MatchString(file.UploadID) {
+		return "", "", fmt.Errorf("invalid file or upload ID")
+	}
+
 	dir = fmt.Sprintf("%s/%s", b.Config.Directory, file.ID[:2])
 	path = fmt.Sprintf("%s/%s", dir, file.ID)
 
 	return dir, path, nil
 }
+
+var validID = regexp.MustCompile(`^[a-zA-Z0-9]+$`)
 
 var errNoSuchFileOrDirectory = fmt.Errorf("no such file or directory")
 
